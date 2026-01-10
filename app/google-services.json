@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "218177382353",
+    "project_id": "tech-city-phone-information",
+    "storage_bucket": "tech-city-phone-information.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:218177382353:android:3b4ab36f749ddf4ca062f0",
+        "android_client_info": {
+          "package_name": "com.techcity.techcityassist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBzAVAO0gwW0qITfmWW5O6Mbscauin9HRU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:218177382353:android:b5342e110626112aa062f0",
+        "android_client_info": {
+          "package_name": "com.techcity.techcitysuite"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBzAVAO0gwW0qITfmWW5O6Mbscauin9HRU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
