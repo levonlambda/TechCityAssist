@@ -13,3 +13,22 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Google Services (contains API keys)
+app/google-services.json
+
+# Local configuration
+local.properties
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE
+.idea/
+*.iml
+
+# Other
+*.apk
+*.aab
