@@ -1,8 +1,11 @@
 package com.techcity.techcityassist
 
+import android.content.Intent
 import androidx.compose.ui.layout.SubcomposeLayout
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.decode.SvgDecoder
+import coil.imageLoader
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.ColorFilter
@@ -12,10 +15,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,22 +37,34 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,13 +78,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.techcity.techcityassist.ui.theme.TechCityAssistTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
 
 // ============================================
 // TEST MODE - Set to false for production
 // ============================================
-const val TEST_MODE = true
+const val TEST_MODE = false
 const val TEST_PHONE_DOC_ID = "ia2JilFWjlB2su72xY56"
 
 // Add multiple inventory doc IDs here
@@ -92,11 +111,63 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             TechCityAssistTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    PhoneListScreen(modifier = Modifier.padding(innerPadding))
-                }
+                MainScreen()
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen() {
+    val context = LocalContext.current
+    var showMenu by remember { mutableStateOf(false) }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text("TechCity Assist") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF6200EE),
+                    titleContentColor = Color.White,
+                    actionIconContentColor = Color.White
+                ),
+                actions = {
+                    // Kebab menu (three dots)
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Menu"
+                        )
+                    }
+
+                    // Dropdown menu
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Image Management") },
+                            onClick = {
+                                showMenu = false
+                                val intent = Intent(context, ImageManagementActivity::class.java)
+                                context.startActivity(intent)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Clear Image Cache (${ImageCacheManager.getCacheSizeFormatted(context)})") },
+                            onClick = {
+                                showMenu = false
+                                ImageCacheManager.clearCache(context)
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        PhoneListScreen(modifier = Modifier.padding(innerPadding))
     }
 }
 
@@ -107,7 +178,7 @@ data class DeviceSpecs(
     val rearCamera: String = "",
     val battery: Int = 0,
     val os: String = "",
-    val network: String = "",  // NEW
+    val network: String = "",
     val display: String = "",
     val displaySize: String = "",
     val resolution: String = "",
@@ -115,11 +186,23 @@ data class DeviceSpecs(
     val wiredCharging: Int = 0
 )
 
+// Data class to hold color and image info for each color variant
+data class ColorImageData(
+    val colorName: String,
+    val imageUrl: String?,       // Local path if cached, otherwise remote URL
+    val hexColor: String,
+    val remoteUrl: String? = null,  // Original remote URL for downloading
+    val isCached: Boolean = false   // Whether the image is cached locally
+)
+
 @Composable
 fun PhoneListScreen(modifier: Modifier = Modifier) {
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedPhone by remember { mutableStateOf<Phone?>(null) }
+
+    // Store phone images for all phones (phoneDocId -> PhoneImages)
+    var phoneImagesMap by remember { mutableStateOf<Map<String, PhoneImages>>(emptyMap()) }
 
     LaunchedEffect(Unit) {
         val db = FirebaseFirestore.getInstance()
@@ -136,7 +219,7 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                             rearCamera = phoneDoc.getString("rearCamera") ?: "",
                             battery = phoneDoc.getLong("battery")?.toInt() ?: 0,
                             os = phoneDoc.getString("os") ?: "",
-                            network = phoneDoc.getString("network") ?: "",  // NEW
+                            network = phoneDoc.getString("network") ?: "",
                             display = phoneDoc.getString("display") ?: "",
                             displaySize = phoneDoc.getString("displaySize") ?: "",
                             resolution = phoneDoc.getString("resolution") ?: "",
@@ -195,7 +278,7 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                                     displayType = specs.display,
                                                     displaySize = specs.displaySize,
                                                     os = specs.os,
-                                                    network = specs.network,  // NEW
+                                                    network = specs.network,
                                                     resolution = specs.resolution,
                                                     refreshRate = specs.refreshRate,
                                                     wiredCharging = specs.wiredCharging,
@@ -207,8 +290,17 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                             .sortedBy { it.retailPrice }
 
                                         phones = phoneList
+
+                                        // Fetch phone_images for this phone
+                                        fetchPhoneImages(db, specs.docId) { images ->
+                                            if (images != null) {
+                                                phoneImagesMap = mapOf(specs.docId to images)
+                                            }
+                                            isLoading = false
+                                        }
+                                    } else {
+                                        isLoading = false
                                     }
-                                    isLoading = false
                                 }
                             }
                             .addOnFailureListener { e ->
@@ -237,7 +329,7 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                             rearCamera = doc.getString("rearCamera") ?: "",
                             battery = doc.getLong("battery")?.toInt() ?: 0,
                             os = doc.getString("os") ?: "",
-                            network = doc.getString("network") ?: "",  // NEW
+                            network = doc.getString("network") ?: "",
                             display = doc.getString("display") ?: "",
                             displaySize = doc.getString("displaySize") ?: "",
                             resolution = doc.getString("resolution") ?: "",
@@ -303,7 +395,7 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                         displayType = specs.display,
                                         displaySize = specs.displaySize,
                                         os = specs.os,
-                                        network = specs.network,  // NEW
+                                        network = specs.network,
                                         resolution = specs.resolution,
                                         refreshRate = specs.refreshRate,
                                         wiredCharging = specs.wiredCharging,
@@ -315,7 +407,20 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                 .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))
 
                             phones = grouped
-                            isLoading = false
+
+                            // Fetch all phone images
+                            val phoneDocIds = grouped.mapNotNull {
+                                it.phoneDocId.ifEmpty { null }
+                            }.distinct()
+
+                            if (phoneDocIds.isNotEmpty()) {
+                                fetchAllPhoneImages(db, phoneDocIds) { imagesMap ->
+                                    phoneImagesMap = imagesMap
+                                    isLoading = false
+                                }
+                            } else {
+                                isLoading = false
+                            }
                         }
                         .addOnFailureListener { exception ->
                             Log.e("Firestore", "Error getting inventory", exception)
@@ -394,6 +499,7 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
             items(phones) { phone ->
                 PhoneCard(
                     phone = phone,
+                    phoneImages = phoneImagesMap[phone.phoneDocId],
                     onClick = { selectedPhone = phone }
                 )
             }
@@ -401,15 +507,301 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
     }
 }
 
+// ============================================
+// Fetch Phone Images Functions
+// ============================================
+
+fun fetchPhoneImages(
+    db: FirebaseFirestore,
+    phoneDocId: String,
+    onComplete: (PhoneImages?) -> Unit
+) {
+    db.collection("phone_images").document(phoneDocId)
+        .get()
+        .addOnSuccessListener { document ->
+            if (document.exists()) {
+                val phoneImages = parsePhoneImagesDocument(document.id, document.data)
+                onComplete(phoneImages)
+            } else {
+                onComplete(null)
+            }
+        }
+        .addOnFailureListener { e ->
+            Log.e("PhoneImages", "Error fetching images for: $phoneDocId", e)
+            onComplete(null)
+        }
+}
+
+fun fetchAllPhoneImages(
+    db: FirebaseFirestore,
+    phoneDocIds: List<String>,
+    onComplete: (Map<String, PhoneImages>) -> Unit
+) {
+    val result = mutableMapOf<String, PhoneImages>()
+    var completedCount = 0
+
+    if (phoneDocIds.isEmpty()) {
+        onComplete(emptyMap())
+        return
+    }
+
+    phoneDocIds.forEach { docId ->
+        db.collection("phone_images").document(docId)
+            .get()
+            .addOnSuccessListener { document ->
+                completedCount++
+                if (document.exists()) {
+                    val phoneImages = parsePhoneImagesDocument(document.id, document.data)
+                    if (phoneImages != null) {
+                        result[docId] = phoneImages
+                    }
+                }
+                if (completedCount == phoneDocIds.size) {
+                    onComplete(result)
+                }
+            }
+            .addOnFailureListener { e ->
+                completedCount++
+                Log.e("PhoneImages", "Error fetching images for: $docId", e)
+                if (completedCount == phoneDocIds.size) {
+                    onComplete(result)
+                }
+            }
+    }
+}
+
+@Suppress("UNCHECKED_CAST")
+fun parsePhoneImagesDocument(docId: String, data: Map<String, Any>?): PhoneImages? {
+    if (data == null) return null
+
+    return try {
+        val colorsMap = mutableMapOf<String, ColorImages>()
+
+        val colorsData = data["colors"] as? Map<String, Map<String, String>>
+        colorsData?.forEach { (colorName, imageUrls) ->
+            colorsMap[colorName] = ColorImages(
+                highRes = imageUrls["highRes"] ?: "",
+                lowRes = imageUrls["lowRes"] ?: "",
+                hexColor = imageUrls["hexColor"] ?: ""
+            )
+        }
+
+        PhoneImages(
+            phoneDocId = data["phoneDocId"] as? String ?: docId,
+            manufacturer = data["manufacturer"] as? String ?: "",
+            model = data["model"] as? String ?: "",
+            colors = colorsMap
+        )
+    } catch (e: Exception) {
+        Log.e("PhoneImages", "Error parsing phone images document: $docId", e)
+        null
+    }
+}
+
+// ============================================
+// Phone Card with Swipeable Images
+// ============================================
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PhoneCard(phone: Phone, onClick: () -> Unit) {
+fun PhoneCard(
+    phone: Phone,
+    phoneImages: PhoneImages? = null,
+    onClick: () -> Unit
+) {
     val formatter = NumberFormat.getNumberInstance(Locale.US)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Build list of colors with their image URLs and hex colors
+    // This will be updated as images are cached
+    var colorsWithImages by remember(phone.colors, phoneImages) {
+        mutableStateOf(
+            phone.colors.map { colorName ->
+                val images = phoneImages?.getImagesForColor(colorName)
+                val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
+
+                // Check if we have a cached version
+                val isHighRes = images?.lowRes.isNullOrEmpty() && !images?.highRes.isNullOrEmpty()
+                val cachedPath = ImageCacheManager.getLocalImageUri(
+                    context,
+                    phone.phoneDocId,
+                    colorName,
+                    isHighRes
+                )
+
+                ColorImageData(
+                    colorName = colorName,
+                    imageUrl = cachedPath ?: remoteUrl,  // Use cached path if available
+                    hexColor = images?.hexColor ?: "",
+                    remoteUrl = remoteUrl,  // Keep remote URL for downloading
+                    isCached = cachedPath != null
+                )
+            }
+        )
+    }
+
+    // Pager state for swiping between images
+    val pagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { maxOf(1, colorsWithImages.size) }
+    )
+
+    // Preload and cache adjacent images
+    val currentColorIndex = pagerState.currentPage
+    LaunchedEffect(currentColorIndex, colorsWithImages) {
+        // Cache images for previous, current, and next colors
+        listOf(currentColorIndex - 1, currentColorIndex, currentColorIndex + 1)
+            .filter { it in colorsWithImages.indices }
+            .forEach { index ->
+                val colorData = colorsWithImages[index]
+
+                // If not cached yet and has remote URL, download and cache
+                if (!colorData.isCached && !colorData.remoteUrl.isNullOrEmpty()) {
+                    val isHighRes = phoneImages?.getImagesForColor(colorData.colorName)?.lowRes.isNullOrEmpty()
+
+                    val cachedPath = ImageCacheManager.downloadAndCacheImage(
+                        context = context,
+                        imageUrl = colorData.remoteUrl,
+                        phoneDocId = phone.phoneDocId,
+                        colorName = colorData.colorName,
+                        isHighRes = isHighRes
+                    )
+
+                    // Update the state with the cached path
+                    if (cachedPath != null) {
+                        colorsWithImages = colorsWithImages.toMutableList().apply {
+                            this[index] = colorData.copy(
+                                imageUrl = cachedPath,
+                                isCached = true
+                            )
+                        }
+                    }
+                }
+            }
+    }
+
+    // State for re-download dialog
+    var showRedownloadDialog by remember { mutableStateOf(false) }
+    var isRedownloading by remember { mutableStateOf(false) }
+    var redownloadProgress by remember { mutableStateOf("") }
+
+    // Re-download dialog
+    if (showRedownloadDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!isRedownloading) showRedownloadDialog = false
+            },
+            title = { Text("Refresh Images") },
+            text = {
+                Column {
+                    Text("${phone.manufacturer} ${phone.model}")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (isRedownloading) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Text(redownloadProgress, fontSize = 14.sp, color = Color.Gray)
+                        }
+                    } else {
+                        Text(
+                            "This will delete cached images and re-download them from the server.",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            isRedownloading = true
+
+                            // Delete cached images for this phone
+                            redownloadProgress = "Clearing cache..."
+                            colorsWithImages.forEach { colorData ->
+                                val isHighRes = phoneImages?.getImagesForColor(colorData.colorName)?.lowRes.isNullOrEmpty()
+                                val file = ImageCacheManager.getLocalFilePath(
+                                    context,
+                                    phone.phoneDocId,
+                                    colorData.colorName,
+                                    isHighRes
+                                )
+                                if (file.exists()) file.delete()
+
+                                // Also delete the other resolution if exists
+                                val otherFile = ImageCacheManager.getLocalFilePath(
+                                    context,
+                                    phone.phoneDocId,
+                                    colorData.colorName,
+                                    !isHighRes
+                                )
+                                if (otherFile.exists()) otherFile.delete()
+                            }
+
+                            // Re-download all images
+                            val total = colorsWithImages.size
+                            colorsWithImages.forEachIndexed { index, colorData ->
+                                if (!colorData.remoteUrl.isNullOrEmpty()) {
+                                    redownloadProgress = "Downloading ${index + 1}/$total..."
+
+                                    val isHighRes = phoneImages?.getImagesForColor(colorData.colorName)?.lowRes.isNullOrEmpty()
+                                    val cachedPath = ImageCacheManager.downloadAndCacheImage(
+                                        context = context,
+                                        imageUrl = colorData.remoteUrl,
+                                        phoneDocId = phone.phoneDocId,
+                                        colorName = colorData.colorName,
+                                        isHighRes = isHighRes ?: false
+                                    )
+
+                                    // Update state with new cached path
+                                    if (cachedPath != null) {
+                                        colorsWithImages = colorsWithImages.toMutableList().apply {
+                                            this[index] = colorData.copy(
+                                                imageUrl = cachedPath,
+                                                isCached = true
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            redownloadProgress = "Complete!"
+                            delay(500)
+                            isRedownloading = false
+                            showRedownloadDialog = false
+                        }
+                    },
+                    enabled = !isRedownloading
+                ) {
+                    Text("Refresh")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRedownloadDialog = false },
+                    enabled = !isRedownloading
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(300.dp)
-            .clickable { onClick() },
+            .combinedClickable(
+                onClick = { onClick() },
+                onLongClick = { showRedownloadDialog = true }
+            ),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8))
@@ -539,15 +931,83 @@ fun PhoneCard(phone: Phone, onClick: () -> Unit) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Phone image
-                Image(
-                    painter = painterResource(id = R.drawable.phone_placeholder),
-                    contentDescription = "${phone.manufacturer} ${phone.model}",
+                // Phone image with swipe - using fixed width container to prevent card rearranging
+                Box(
                     modifier = Modifier
                         .weight(1f)
+                        .width(140.dp)  // Fixed width to prevent layout shifts
                         .padding(start = 8.dp),
-                    contentScale = ContentScale.FillHeight
-                )
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (colorsWithImages.isNotEmpty()) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            val colorData = colorsWithImages[page]
+
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (colorData.imageUrl != null) {
+                                    var isImageLoading by remember { mutableStateOf(true) }
+
+                                    // Use File for local cached images, URL string for remote
+                                    val imageModel = if (colorData.isCached) {
+                                        java.io.File(colorData.imageUrl)
+                                    } else {
+                                        colorData.imageUrl
+                                    }
+
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(imageModel)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "${phone.manufacturer} ${phone.model} in ${colorData.colorName}",
+                                        modifier = Modifier.fillMaxHeight(),
+                                        contentScale = ContentScale.FillHeight,
+                                        onState = { state ->
+                                            isImageLoading = state is AsyncImagePainter.State.Loading
+                                        }
+                                    )
+
+                                    if (isImageLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                } else {
+                                    // No image uploaded - show text
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No Image",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // No colors at all - show text
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No Image",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -555,8 +1015,11 @@ fun PhoneCard(phone: Phone, onClick: () -> Unit) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    phone.colors.forEach { color ->
-                        ColorDot(colorName = color)
+                    colorsWithImages.forEach { colorData ->
+                        ColorDot(
+                            colorName = colorData.colorName,
+                            hexColor = colorData.hexColor
+                        )
                     }
                 }
             }
@@ -611,8 +1074,16 @@ fun SpecItem(
 }
 
 @Composable
-fun ColorDot(colorName: String) {
-    val backgroundColor = getColorFromName(colorName)
+fun ColorDot(
+    colorName: String,
+    hexColor: String = ""
+) {
+    // Use hex color from phone_images if provided, otherwise fall back to default
+    val backgroundColor = if (hexColor.isNotEmpty()) {
+        hexToColor(hexColor)
+    } else {
+        getColorFromName(colorName)
+    }
 
     Surface(
         modifier = Modifier
@@ -625,6 +1096,34 @@ fun ColorDot(colorName: String) {
         shape = CircleShape,
         color = backgroundColor
     ) {}
+}
+
+/**
+ * Parse hex color string to Compose Color (renamed to avoid conflict with ImageManagementActivity)
+ */
+private fun hexToColor(hex: String): Color {
+    return try {
+        val cleanHex = hex.removePrefix("#")
+        val colorLong = cleanHex.toLong(16)
+
+        if (cleanHex.length == 6) {
+            Color(
+                red = ((colorLong shr 16) and 0xFF) / 255f,
+                green = ((colorLong shr 8) and 0xFF) / 255f,
+                blue = (colorLong and 0xFF) / 255f
+            )
+        } else if (cleanHex.length == 3) {
+            // Short form: #RGB -> #RRGGBB
+            val r = ((colorLong shr 8) and 0xF) * 17
+            val g = ((colorLong shr 4) and 0xF) * 17
+            val b = (colorLong and 0xF) * 17
+            Color(r / 255f, g / 255f, b / 255f)
+        } else {
+            Color.Gray
+        }
+    } catch (e: Exception) {
+        Color.Gray
+    }
 }
 
 fun getColorFromName(colorName: String): Color {
