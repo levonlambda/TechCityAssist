@@ -22,11 +22,12 @@ data class Phone(
     val displayType: String = "",
     val displaySize: String = "",
     val os: String = "",
-    val network: String = "",  // NEW
+    val network: String = "",
     val resolution: String = "",
     val refreshRate: Int = 0,
     val wiredCharging: Int = 0,
     val inventoryDocIds: List<String> = emptyList(),
     val phoneDocId: String = "",
-    val variants: List<PhoneVariant> = emptyList()
+    val variants: List<PhoneVariant> = emptyList(),
+    val deviceType: String = ""  // Phone, Tablet, Laptop
 )

@@ -47,10 +47,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -117,11 +121,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Data class for filter state
+data class DisplayFilters(
+    val showPhonesBrandNew: Boolean = true,
+    val showPhonesRefurbished: Boolean = false,
+    val showTablets: Boolean = false,
+    val showLaptops: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+
+    // Filter state - persisted across recompositions
+    var filters by remember { mutableStateOf(DisplayFilters()) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -147,6 +162,101 @@ fun MainScreen() {
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        // Filter Header
+                        Text(
+                            text = "Display Filters",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF6200EE),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+
+                        // Phones (Brand New) checkbox
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = filters.showPhonesBrandNew,
+                                        onCheckedChange = null,  // Let DropdownMenuItem handle clicks
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF6200EE)
+                                        )
+                                    )
+                                    Text("Phones (Brand New)")
+                                }
+                            },
+                            onClick = {
+                                filters = filters.copy(showPhonesBrandNew = !filters.showPhonesBrandNew)
+                            }
+                        )
+
+                        // Phones (Refurbished) checkbox
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = filters.showPhonesRefurbished,
+                                        onCheckedChange = null,
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF6200EE)
+                                        )
+                                    )
+                                    Text("Phones (Refurbished)")
+                                }
+                            },
+                            onClick = {
+                                filters = filters.copy(showPhonesRefurbished = !filters.showPhonesRefurbished)
+                            }
+                        )
+
+                        // Tablets checkbox
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = filters.showTablets,
+                                        onCheckedChange = null,
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF6200EE)
+                                        )
+                                    )
+                                    Text("Tablets")
+                                }
+                            },
+                            onClick = {
+                                filters = filters.copy(showTablets = !filters.showTablets)
+                            }
+                        )
+
+                        // Laptops checkbox
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = filters.showLaptops,
+                                        onCheckedChange = null,
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF6200EE)
+                                        )
+                                    )
+                                    Text("Laptops")
+                                }
+                            },
+                            onClick = {
+                                filters = filters.copy(showLaptops = !filters.showLaptops)
+                            }
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                         DropdownMenuItem(
                             text = { Text("Image Management") },
                             onClick = {
@@ -167,7 +277,10 @@ fun MainScreen() {
             )
         }
     ) { innerPadding ->
-        PhoneListScreen(modifier = Modifier.padding(innerPadding))
+        PhoneListScreen(
+            modifier = Modifier.padding(innerPadding),
+            filters = filters
+        )
     }
 }
 
@@ -183,7 +296,8 @@ data class DeviceSpecs(
     val displaySize: String = "",
     val resolution: String = "",
     val refreshRate: Int = 0,
-    val wiredCharging: Int = 0
+    val wiredCharging: Int = 0,
+    val deviceType: String = ""
 )
 
 // Data class to hold color and image info for each color variant
@@ -195,14 +309,51 @@ data class ColorImageData(
     val isCached: Boolean = false   // Whether the image is cached locally
 )
 
+/**
+ * Check if a phone should be displayed based on current filters
+ */
+fun shouldDisplayPhone(phone: Phone, filters: DisplayFilters): Boolean {
+    val isRefurbished = phone.model.contains("refurbished", ignoreCase = true)
+    val deviceType = phone.deviceType.lowercase().trim()
+
+    return when {
+        // If deviceType is empty/unknown, show based on all relevant filters
+        deviceType.isEmpty() -> {
+            // Show if any filter is enabled (don't hide items with unknown type)
+            filters.showPhonesBrandNew || filters.showPhonesRefurbished ||
+                    filters.showTablets || filters.showLaptops
+        }
+        // Check for Phones
+        deviceType == "phone" -> {
+            if (isRefurbished) {
+                filters.showPhonesRefurbished
+            } else {
+                filters.showPhonesBrandNew
+            }
+        }
+        // Check for Tablets
+        deviceType == "tablet" -> filters.showTablets
+        // Check for Laptops
+        deviceType == "laptop" -> filters.showLaptops
+        // Default: show if it's not explicitly filtered out
+        else -> true
+    }
+}
+
 @Composable
-fun PhoneListScreen(modifier: Modifier = Modifier) {
+fun PhoneListScreen(
+    modifier: Modifier = Modifier,
+    filters: DisplayFilters = DisplayFilters()
+) {
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedPhone by remember { mutableStateOf<Phone?>(null) }
 
     // Store phone images for all phones (phoneDocId -> PhoneImages)
     var phoneImagesMap by remember { mutableStateOf<Map<String, PhoneImages>>(emptyMap()) }
+
+    // Apply filters to the phone list - computed directly for reactivity
+    val filteredPhones = phones.filter { phone -> shouldDisplayPhone(phone, filters) }
 
     LaunchedEffect(Unit) {
         val db = FirebaseFirestore.getInstance()
@@ -224,7 +375,8 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                             displaySize = phoneDoc.getString("displaySize") ?: "",
                             resolution = phoneDoc.getString("resolution") ?: "",
                             refreshRate = phoneDoc.getLong("resolution_extra")?.toInt() ?: 0,
-                            wiredCharging = phoneDoc.getLong("wiredCharging")?.toInt() ?: 0
+                            wiredCharging = phoneDoc.getLong("wiredCharging")?.toInt() ?: 0,
+                            deviceType = phoneDoc.getString("deviceType") ?: ""
                         )
                     } else {
                         DeviceSpecs()
@@ -284,7 +436,8 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                                     wiredCharging = specs.wiredCharging,
                                                     inventoryDocIds = variantItems.map { it["docId"] as String },
                                                     phoneDocId = specs.docId,
-                                                    variants = emptyList()
+                                                    variants = emptyList(),
+                                                    deviceType = specs.deviceType
                                                 )
                                             }
                                             .sortedBy { it.retailPrice }
@@ -334,7 +487,8 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                             displaySize = doc.getString("displaySize") ?: "",
                             resolution = doc.getString("resolution") ?: "",
                             refreshRate = doc.getLong("resolution_extra")?.toInt() ?: 0,
-                            wiredCharging = doc.getLong("wiredCharging")?.toInt() ?: 0
+                            wiredCharging = doc.getLong("wiredCharging")?.toInt() ?: 0,
+                            deviceType = doc.getString("deviceType") ?: ""
                         )
                     }
 
@@ -401,7 +555,8 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                         wiredCharging = specs.wiredCharging,
                                         inventoryDocIds = inventoryDocIds,
                                         phoneDocId = specs.docId,
-                                        variants = emptyList()
+                                        variants = emptyList(),
+                                        deviceType = specs.deviceType
                                     )
                                 }
                                 .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))
@@ -464,6 +619,15 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                                 color = Color.Gray
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(text = "Device Type:", fontWeight = FontWeight.Medium)
+                        Text(
+                            text = selectedPhone!!.deviceType.ifEmpty { "Phone" },
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
                     }
                 }
             },
@@ -482,12 +646,21 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
         ) {
             CircularProgressIndicator()
         }
-    } else if (phones.isEmpty()) {
+    } else if (filteredPhones.isEmpty()) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text("No phones available")
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("No devices match your filters")
+                Text(
+                    text = "Try adjusting the display filters in the menu",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+            }
         }
     } else {
         LazyColumn(
@@ -496,7 +669,7 @@ fun PhoneListScreen(modifier: Modifier = Modifier) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(phones) { phone ->
+            items(filteredPhones) { phone ->
                 PhoneCard(
                     phone = phone,
                     phoneImages = phoneImagesMap[phone.phoneDocId],
@@ -830,15 +1003,22 @@ fun PhoneCard(
                             modifier = Modifier.size(42.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = formatModelName(phone.model),
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1A1A1A),
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "${phone.manufacturer} ${formatModelName(phone.model)}",
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1A1A1A),
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
                     }
-
-                    Text(
-                        text = formatModelName(phone.model),
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1A1A1A),
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
