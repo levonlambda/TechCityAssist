@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -56,6 +58,8 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -111,6 +115,21 @@ val TEST_INVENTORY_DOC_IDS = listOf(
 )
 // ============================================
 
+// List of manufacturers for filter buttons
+val MANUFACTURER_FILTERS = listOf(
+    "All",
+    "Apple",
+    "Samsung",
+    "Infinix",
+    "Tecno",
+    "Xiaomi",
+    "Honor",
+    "Vivo",
+    "Itel",
+    "Oppo",
+    "Realme"
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,13 +159,50 @@ fun MainScreen() {
     // Filter state - persisted across recompositions
     var filters by remember { mutableStateOf(DisplayFilters()) }
 
+    // Manufacturer filter state
+    var selectedManufacturer by remember { mutableStateOf("All") }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("TechCity Assist") },
+                title = {
+                    // Horizontal scrollable row of manufacturer filter buttons
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MANUFACTURER_FILTERS.forEach { manufacturer ->
+                            FilterChip(
+                                selected = selectedManufacturer == manufacturer,
+                                onClick = { selectedManufacturer = manufacturer },
+                                label = {
+                                    Text(
+                                        text = manufacturer,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selectedManufacturer == manufacturer) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF2196F3),
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color.White,
+                                    labelColor = Color(0xFF333333)
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = Color(0xFFDDDDDD),
+                                    selectedBorderColor = Color(0xFF2196F3),
+                                    enabled = true,
+                                    selected = selectedManufacturer == manufacturer
+                                )
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF6200EE),
+                    containerColor = Color.Black,  // Black background
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White
                 ),
@@ -281,7 +337,8 @@ fun MainScreen() {
     ) { innerPadding ->
         PhoneListScreen(
             modifier = Modifier.padding(innerPadding),
-            filters = filters
+            filters = filters,
+            selectedManufacturer = selectedManufacturer
         )
     }
 }
@@ -342,10 +399,19 @@ fun shouldDisplayPhone(phone: Phone, filters: DisplayFilters): Boolean {
     }
 }
 
+/**
+ * Check if a phone matches the selected manufacturer filter
+ */
+fun matchesManufacturerFilter(phone: Phone, selectedManufacturer: String): Boolean {
+    if (selectedManufacturer == "All") return true
+    return phone.manufacturer.equals(selectedManufacturer, ignoreCase = true)
+}
+
 @Composable
 fun PhoneListScreen(
     modifier: Modifier = Modifier,
-    filters: DisplayFilters = DisplayFilters()
+    filters: DisplayFilters = DisplayFilters(),
+    selectedManufacturer: String = "All"
 ) {
     val context = LocalContext.current
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
@@ -391,8 +457,28 @@ fun PhoneListScreen(
         }
     }
 
-    // Apply filters to the phone list - computed directly for reactivity
-    val filteredPhones = phones.filter { phone -> shouldDisplayPhone(phone, filters) }
+    // Apply filters to the phone list and sort:
+    // 1. Exclude TechCity manufacturer
+    // 2. Group by model (manufacturer + model name)
+    // 3. Sort variants within each model by price (lowest to highest)
+    // 4. Sort model groups by their lowest price
+    val filteredPhones = phones
+        .filter { phone ->
+            // Exclude TechCity manufacturer
+            !phone.manufacturer.equals("techcity", ignoreCase = true) &&
+                    shouldDisplayPhone(phone, filters) &&
+                    matchesManufacturerFilter(phone, selectedManufacturer)
+        }
+        .groupBy { "${it.manufacturer}|${it.model}" }  // Group by model
+        .map { (_, variants) ->
+            // Sort variants within each model by price
+            variants.sortedBy { it.retailPrice }
+        }
+        .sortedBy { variants ->
+            // Sort model groups by their lowest price (first item after sorting)
+            variants.firstOrNull()?.retailPrice ?: Double.MAX_VALUE
+        }
+        .flatten()  // Flatten back to a single list
 
     LaunchedEffect(Unit) {
         val db = FirebaseFirestore.getInstance()
@@ -680,14 +766,18 @@ fun PhoneListScreen(
 
     if (isLoading) {
         Box(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFFF0F0F0)),  // Very light gray background
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator()
         }
     } else if (filteredPhones.isEmpty()) {
         Box(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFFF0F0F0)),  // Very light gray background
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -705,6 +795,7 @@ fun PhoneListScreen(
         LazyColumn(
             modifier = modifier
                 .fillMaxSize()
+                .background(Color(0xFFF0F0F0))  // Very light gray background
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -917,6 +1008,11 @@ fun PhoneCard(
 
     // Re-download dialog
     if (showRedownloadDialog) {
+        // Check if we have any remote URLs to download
+        val hasRemoteUrls = colorsWithImages.any { !it.remoteUrl.isNullOrEmpty() }
+        val colorsWithoutUrls = colorsWithImages.filter { it.remoteUrl.isNullOrEmpty() }.map { it.colorName }
+        val availableImageColors = phoneImages?.getAvailableColors() ?: emptyList()
+
         AlertDialog(
             onDismissRequest = {
                 if (!isRedownloading) showRedownloadDialog = false
@@ -925,6 +1021,12 @@ fun PhoneCard(
             text = {
                 Column {
                     Text("${phone.manufacturer} ${phone.model}")
+                    Text("Phone Doc ID: ${phone.phoneDocId.ifEmpty { "MISSING!" }}", fontSize = 10.sp, color = if (phone.phoneDocId.isEmpty()) Color.Red else Color.Gray)
+                    Text("Phone Images: ${if (phoneImages != null) "Found" else "NOT FOUND"}", fontSize = 10.sp, color = if (phoneImages == null) Color.Red else Color.Gray)
+                    if (availableImageColors.isNotEmpty()) {
+                        Text("Image colors: ${availableImageColors.joinToString(", ")}", fontSize = 10.sp, color = Color.Gray)
+                    }
+                    Text("Inventory colors: ${phone.colors.joinToString(", ")}", fontSize = 10.sp, color = Color.Gray)
                     Spacer(modifier = Modifier.height(8.dp))
                     if (isRedownloading) {
                         Row(
@@ -937,12 +1039,34 @@ fun PhoneCard(
                             )
                             Text(redownloadProgress, fontSize = 14.sp, color = Color.Gray)
                         }
+                    } else if (!hasRemoteUrls) {
+                        Text(
+                            "No image URLs found for this phone. Make sure images are uploaded in Image Management.",
+                            fontSize = 14.sp,
+                            color = Color(0xFFE65100)
+                        )
+                        if (colorsWithoutUrls.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Colors without URLs: ${colorsWithoutUrls.joinToString(", ")}",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
                     } else {
                         Text(
                             "This will delete cached images and re-download them from the server.",
                             fontSize = 14.sp,
                             color = Color.Gray
                         )
+                        if (colorsWithoutUrls.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Note: No URLs for: ${colorsWithoutUrls.joinToString(", ")}",
+                                fontSize = 11.sp,
+                                color = Color(0xFFFF9800)
+                            )
+                        }
                     }
                 }
             },
@@ -973,20 +1097,33 @@ fun PhoneCard(
                             }
 
                             val total = colorsWithImages.size
+                            val updatedColors = colorsWithImages.toMutableList()
+
                             colorsWithImages.forEachIndexed { index, colorData ->
                                 if (!colorData.remoteUrl.isNullOrEmpty()) {
                                     redownloadProgress = "Downloading ${index + 1}/$total..."
 
                                     val isHighRes = phoneImages?.getImagesForColor(colorData.colorName)?.lowRes.isNullOrEmpty() == true
-                                    ImageCacheManager.downloadAndCacheImage(
+                                    val cachedPath = ImageCacheManager.downloadAndCacheImage(
                                         context = context,
                                         imageUrl = colorData.remoteUrl,
                                         phoneDocId = phone.phoneDocId,
                                         colorName = colorData.colorName,
                                         isHighRes = isHighRes ?: false
                                     )
+
+                                    // Update the color data with new cached path
+                                    if (cachedPath != null) {
+                                        updatedColors[index] = colorData.copy(
+                                            imageUrl = cachedPath,
+                                            isCached = true
+                                        )
+                                    }
                                 }
                             }
+
+                            // Update the state with all the new cached paths
+                            colorsWithImages = updatedColors
 
                             redownloadProgress = "Complete!"
                             delay(500)
@@ -1020,7 +1157,7 @@ fun PhoneCard(
             ),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8))
+        colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Row(
             modifier = Modifier

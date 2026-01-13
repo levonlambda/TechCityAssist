@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -64,7 +65,11 @@ data class PhoneModel(
     val docId: String,
     val manufacturer: String,
     val model: String,
-    val colors: List<String> = emptyList()  // Will be populated from inventory
+    val colors: List<String> = emptyList(),  // Will be populated from inventory
+    val isDuplicate: Boolean = false,  // Flag for duplicate detection
+    val duplicateCount: Int = 1,  // How many duplicates exist
+    val hasImages: Boolean = false,  // Whether this doc has images in phone_images collection
+    val imageCount: Int = 0  // Number of color images uploaded
 )
 
 // Data class for color image status
@@ -99,6 +104,10 @@ fun ImageManagementScreen(
     var showPhoneDropdown by remember { mutableStateOf(false) }
     var showSyncDialog by remember { mutableStateOf(false) }
     var syncResult by remember { mutableStateOf<String?>(null) }
+
+    // Duplicate detection state
+    var duplicatePhones by remember { mutableStateOf<Map<String, List<PhoneModel>>>(emptyMap()) }
+    var showDuplicatesDialog by remember { mutableStateOf(false) }
 
     // Filtered phone models based on selected manufacturer
     val filteredPhoneModels = remember(selectedManufacturer, phoneModels) {
@@ -150,8 +159,9 @@ fun ImageManagementScreen(
 
     // Load phone models on start
     LaunchedEffect(Unit) {
-        loadPhoneModels { models ->
+        loadPhoneModels { models, duplicates ->
             phoneModels = models
+            duplicatePhones = duplicates
             // Extract unique manufacturers and sort them
             manufacturers = models.map { it.manufacturer }.distinct().sorted()
             isLoading = false
@@ -173,6 +183,103 @@ fun ImageManagementScreen(
                 isLoading = false
             }
         }
+    }
+
+    // Duplicates Dialog
+    if (showDuplicatesDialog) {
+        AlertDialog(
+            onDismissRequest = { showDuplicatesDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF9800))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Duplicate Phones Detected")
+                }
+            },
+            text = {
+                LazyColumn {
+                    duplicatePhones.forEach { (key, phones) ->
+                        item {
+                            Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                Text(
+                                    text = key.replace("|", " - "),
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFE65100)
+                                )
+                                phones.forEach { phone ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "ID: ${phone.docId}",
+                                                fontSize = 11.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                        // Show image status
+                                        if (phone.hasImages) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFF4CAF50)
+                                            ) {
+                                                Text(
+                                                    text = "✓ ${phone.imageCount} images",
+                                                    fontSize = 10.sp,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        } else {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFE0E0E0)
+                                            ) {
+                                                Text(
+                                                    text = "No images",
+                                                    fontSize = 10.sp,
+                                                    color = Color.Gray,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                // Show recommendation
+                                val phonesWithImages = phones.filter { it.hasImages }
+                                val recommendation = when {
+                                    phonesWithImages.isEmpty() -> "No images uploaded yet. Delete all but one."
+                                    phonesWithImages.size == 1 -> "✓ Keep: ${phonesWithImages.first().docId.take(12)}... (has images)"
+                                    else -> "⚠️ Multiple have images! Manually check which to keep."
+                                }
+                                Text(
+                                    text = recommendation,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = when {
+                                        phonesWithImages.isEmpty() -> Color(0xFF666666)
+                                        phonesWithImages.size == 1 -> Color(0xFF4CAF50)
+                                        else -> Color(0xFFFF9800)
+                                    }
+                                )
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDuplicatesDialog = false }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 
     // Sync Dialog
@@ -204,8 +311,9 @@ fun ImageManagementScreen(
                             syncPhoneImagesCollection { result ->
                                 syncResult = result
                                 // Refresh phone models
-                                loadPhoneModels { models ->
+                                loadPhoneModels { models, duplicates ->
                                     phoneModels = models
+                                    duplicatePhones = duplicates
                                     manufacturers = models.map { it.manufacturer }.distinct().sorted()
                                     isLoading = false
                                 }
@@ -238,6 +346,22 @@ fun ImageManagementScreen(
                 }
             },
             actions = {
+                // Show warning if duplicates exist
+                if (duplicatePhones.isNotEmpty()) {
+                    IconButton(onClick = { showDuplicatesDialog = true }) {
+                        BadgedBox(
+                            badge = {
+                                Badge { Text("${duplicatePhones.size}") }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = "Duplicates",
+                                tint = Color(0xFFFF9800)
+                            )
+                        }
+                    }
+                }
                 IconButton(onClick = { showSyncDialog = true }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Sync")
                 }
@@ -249,6 +373,42 @@ fun ImageManagementScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
+            // Warning banner for duplicates
+            if (duplicatePhones.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .clickable { showDuplicatesDialog = true },
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFFF3E0)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFFF9800)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "${duplicatePhones.size} duplicate phone models found!",
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100)
+                            )
+                            Text(
+                                text = "Tap to see details. Delete duplicates in Firebase Console.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF666666)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Manufacturer Selector
             Text(
                 text = "Select Manufacturer",
@@ -309,7 +469,9 @@ fun ImageManagementScreen(
                     onExpandedChange = { showPhoneDropdown = it }
                 ) {
                     OutlinedTextField(
-                        value = selectedPhone?.model ?: "Select a phone...",
+                        value = selectedPhone?.let {
+                            if (it.isDuplicate) "${it.model} ⚠️" else it.model
+                        } ?: "Select a phone...",
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = {
@@ -326,13 +488,110 @@ fun ImageManagementScreen(
                     ) {
                         filteredPhoneModels.forEach { phone ->
                             DropdownMenuItem(
-                                text = { Text(phone.model) },
+                                text = {
+                                    Column {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(phone.model, modifier = Modifier.weight(1f))
+                                            if (phone.isDuplicate) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Icon(
+                                                    Icons.Default.Warning,
+                                                    contentDescription = "Duplicate",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = Color(0xFFFF9800)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            // Image status badge
+                                            if (phone.hasImages) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0xFF4CAF50)
+                                                ) {
+                                                    Text(
+                                                        text = "${phone.imageCount} img",
+                                                        fontSize = 9.sp,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            } else {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0xFFE0E0E0)
+                                                ) {
+                                                    Text(
+                                                        text = "0 img",
+                                                        fontSize = 9.sp,
+                                                        color = Color.Gray,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = "ID: ${phone.docId.take(12)}...",
+                                            fontSize = 10.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                },
                                 onClick = {
                                     selectedPhone = phone
                                     showPhoneDropdown = false
                                 }
                             )
                         }
+                    }
+                }
+
+                // Show selected phone's full doc ID and image status
+                if (selectedPhone != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Doc ID: ${selectedPhone!!.docId}",
+                            fontSize = 11.sp,
+                            color = if (selectedPhone!!.isDuplicate) Color(0xFFFF9800) else Color.Gray,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (selectedPhone!!.hasImages) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF4CAF50)
+                            ) {
+                                Text(
+                                    text = "✓ ${selectedPhone!!.imageCount} images uploaded",
+                                    fontSize = 10.sp,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFFE0E0E0)
+                            ) {
+                                Text(
+                                    text = "No images yet",
+                                    fontSize = 10.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    if (selectedPhone!!.isDuplicate) {
+                        Text(
+                            text = "⚠️ This model has ${selectedPhone!!.duplicateCount} entries. Make sure you're uploading to the right one!",
+                            fontSize = 11.sp,
+                            color = Color(0xFFE65100)
+                        )
                     }
                 }
             }
@@ -780,56 +1039,141 @@ fun parseHexColor(hex: String): Color {
 
 /**
  * Load all phone models from the phones collection
+ * Also detects duplicates (same manufacturer|model with different doc IDs)
+ * And checks which documents have images in phone_images collection
  */
-fun loadPhoneModels(onComplete: (List<PhoneModel>) -> Unit) {
+fun loadPhoneModels(onComplete: (List<PhoneModel>, Map<String, List<PhoneModel>>) -> Unit) {
     val db = FirebaseFirestore.getInstance()
 
     db.collection("phones")
         .get()
         .addOnSuccessListener { phonesResult ->
-            val phoneDocIds = phonesResult.documents.map { it.id }
-            val phonesData = phonesResult.documents.associate { doc ->
-                doc.id to PhoneModel(
+            // First pass: collect all phones and detect duplicates
+            val allPhones = phonesResult.documents.map { doc ->
+                PhoneModel(
                     docId = doc.id,
                     manufacturer = doc.getString("manufacturer") ?: "",
                     model = doc.getString("model") ?: ""
                 )
             }
 
-            // Now get colors from inventory for each phone
-            db.collection("inventory")
+            // Group by manufacturer|model to find duplicates
+            val groupedByModel = allPhones.groupBy { "${it.manufacturer}|${it.model}" }
+            val duplicates = groupedByModel.filter { it.value.size > 1 }
+
+            // Mark phones that have duplicates
+            val phonesWithDuplicateFlag = allPhones.map { phone ->
+                val key = "${phone.manufacturer}|${phone.model}"
+                val duplicateCount = groupedByModel[key]?.size ?: 1
+                phone.copy(
+                    isDuplicate = duplicateCount > 1,
+                    duplicateCount = duplicateCount
+                )
+            }
+
+            // Now check phone_images collection to see which docs have images
+            db.collection("phone_images")
                 .get()
-                .addOnSuccessListener { inventoryResult ->
-                    // Group inventory by manufacturer|model and collect colors
-                    val colorsMap = mutableMapOf<String, MutableSet<String>>()
+                .addOnSuccessListener { phoneImagesResult ->
+                    // Map of docId -> (hasImages, imageCount)
+                    val imageStatusMap = mutableMapOf<String, Pair<Boolean, Int>>()
 
-                    inventoryResult.documents.forEach { doc ->
-                        val manufacturer = doc.getString("manufacturer") ?: ""
-                        val model = doc.getString("model") ?: ""
-                        val color = doc.getString("color") ?: ""
+                    phoneImagesResult.documents.forEach { doc ->
+                        @Suppress("UNCHECKED_CAST")
+                        val colorsData = doc.get("colors") as? Map<String, Map<String, String>>
 
-                        if (manufacturer.isNotEmpty() && model.isNotEmpty() && color.isNotEmpty()) {
-                            val key = "$manufacturer|$model"
-                            colorsMap.getOrPut(key) { mutableSetOf() }.add(color)
+                        if (colorsData != null) {
+                            // Count how many colors have at least one image (highRes or lowRes)
+                            val colorsWithImages = colorsData.count { (_, imageUrls) ->
+                                !imageUrls["highRes"].isNullOrEmpty() || !imageUrls["lowRes"].isNullOrEmpty()
+                            }
+                            imageStatusMap[doc.id] = Pair(colorsWithImages > 0, colorsWithImages)
+                        } else {
+                            imageStatusMap[doc.id] = Pair(false, 0)
                         }
                     }
 
-                    // Match colors to phones
-                    val phoneModels = phonesData.values.map { phone ->
-                        val key = "${phone.manufacturer}|${phone.model}"
-                        phone.copy(colors = colorsMap[key]?.toList()?.sorted() ?: emptyList())
-                    }.sortedWith(compareBy({ it.manufacturer }, { it.model }))
+                    // Update phones with image status
+                    val phonesWithImageStatus = phonesWithDuplicateFlag.map { phone ->
+                        val imageStatus = imageStatusMap[phone.docId]
+                        phone.copy(
+                            hasImages = imageStatus?.first ?: false,
+                            imageCount = imageStatus?.second ?: 0
+                        )
+                    }
 
-                    onComplete(phoneModels)
+                    // Update duplicates map with image status too
+                    val duplicatesWithImageStatus = duplicates.mapValues { (_, phones) ->
+                        phones.map { phone ->
+                            val imageStatus = imageStatusMap[phone.docId]
+                            phone.copy(
+                                hasImages = imageStatus?.first ?: false,
+                                imageCount = imageStatus?.second ?: 0
+                            )
+                        }
+                    }
+
+                    // Now get colors from inventory for each phone
+                    db.collection("inventory")
+                        .get()
+                        .addOnSuccessListener { inventoryResult ->
+                            // Group inventory by manufacturer|model and collect colors
+                            val colorsMap = mutableMapOf<String, MutableSet<String>>()
+
+                            inventoryResult.documents.forEach { doc ->
+                                val manufacturer = doc.getString("manufacturer") ?: ""
+                                val model = doc.getString("model") ?: ""
+                                val color = doc.getString("color") ?: ""
+
+                                if (manufacturer.isNotEmpty() && model.isNotEmpty() && color.isNotEmpty()) {
+                                    val key = "$manufacturer|$model"
+                                    colorsMap.getOrPut(key) { mutableSetOf() }.add(color)
+                                }
+                            }
+
+                            // Match colors to phones
+                            val phoneModels = phonesWithImageStatus.map { phone ->
+                                val key = "${phone.manufacturer}|${phone.model}"
+                                phone.copy(colors = colorsMap[key]?.toList()?.sorted() ?: emptyList())
+                            }.sortedWith(compareBy({ it.manufacturer }, { it.model }))
+
+                            onComplete(phoneModels, duplicatesWithImageStatus)
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("ImageMgmt", "Error loading inventory", e)
+                            onComplete(phonesWithImageStatus, duplicatesWithImageStatus)
+                        }
                 }
                 .addOnFailureListener { e ->
-                    Log.e("ImageMgmt", "Error loading inventory", e)
-                    onComplete(phonesData.values.toList())
+                    Log.e("ImageMgmt", "Error loading phone_images", e)
+                    // Continue without image status
+                    db.collection("inventory")
+                        .get()
+                        .addOnSuccessListener { inventoryResult ->
+                            val colorsMap = mutableMapOf<String, MutableSet<String>>()
+                            inventoryResult.documents.forEach { doc ->
+                                val manufacturer = doc.getString("manufacturer") ?: ""
+                                val model = doc.getString("model") ?: ""
+                                val color = doc.getString("color") ?: ""
+                                if (manufacturer.isNotEmpty() && model.isNotEmpty() && color.isNotEmpty()) {
+                                    val key = "$manufacturer|$model"
+                                    colorsMap.getOrPut(key) { mutableSetOf() }.add(color)
+                                }
+                            }
+                            val phoneModels = phonesWithDuplicateFlag.map { phone ->
+                                val key = "${phone.manufacturer}|${phone.model}"
+                                phone.copy(colors = colorsMap[key]?.toList()?.sorted() ?: emptyList())
+                            }.sortedWith(compareBy({ it.manufacturer }, { it.model }))
+                            onComplete(phoneModels, duplicates)
+                        }
+                        .addOnFailureListener {
+                            onComplete(phonesWithDuplicateFlag, duplicates)
+                        }
                 }
         }
         .addOnFailureListener { e ->
             Log.e("ImageMgmt", "Error loading phones", e)
-            onComplete(emptyList())
+            onComplete(emptyList(), emptyMap())
         }
 }
 
