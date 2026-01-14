@@ -7,6 +7,7 @@ import coil.compose.AsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.ImageLoader
 import coil.imageLoader
+import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +41,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -186,14 +188,14 @@ fun MainScreen() {
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF2196F3),
+                                    selectedContainerColor = Color(0xFF666666),
                                     selectedLabelColor = Color.White,
                                     containerColor = Color.White,
                                     labelColor = Color(0xFF333333)
                                 ),
                                 border = FilterChipDefaults.filterChipBorder(
                                     borderColor = Color(0xFFDDDDDD),
-                                    selectedBorderColor = Color(0xFF2196F3),
+                                    selectedBorderColor = Color(0xFF666666),
                                     enabled = true,
                                     selected = selectedManufacturer == manufacturer
                                 )
@@ -202,9 +204,9 @@ fun MainScreen() {
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,  // Black background
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White
+                    containerColor = Color(0xFFFCF9F5),
+                    titleContentColor = Color(0xFF333333),
+                    actionIconContentColor = Color(0xFF333333)
                 ),
                 actions = {
                     // Kebab menu (three dots)
@@ -365,7 +367,8 @@ data class ColorImageData(
     val imageUrl: String?,       // Local path if cached, otherwise remote URL
     val hexColor: String,
     val remoteUrl: String? = null,  // Original remote URL for downloading
-    val isCached: Boolean = false   // Whether the image is cached locally
+    val isCached: Boolean = false,  // Whether the image is cached locally
+    val cacheVersion: Long = 0      // Increment to force Coil to reload
 )
 
 /**
@@ -768,7 +771,7 @@ fun PhoneListScreen(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFFF0F0F0)),  // Very light gray background
+                .background(Color(0xFFFCF9F5)),  // Warm off-white background
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator()
@@ -777,7 +780,7 @@ fun PhoneListScreen(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFFF0F0F0)),  // Very light gray background
+                .background(Color(0xFFFCF9F5)),  // Warm off-white background
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -795,19 +798,21 @@ fun PhoneListScreen(
         LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFFF0F0F0))  // Very light gray background
+                .background(Color(0xFFFCF9F5))  // Warm off-white background
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(
+            itemsIndexed(
                 items = filteredPhones,
-                key = { phone -> "${phone.phoneDocId}_${phone.ram}_${phone.storage}" }
-            ) { phone ->
+                key = { _, phone -> "${phone.phoneDocId}_${phone.ram}_${phone.storage}" }
+            ) { index, phone ->
                 PhoneCard(
                     phone = phone,
                     phoneImages = phoneImagesMap[phone.phoneDocId],
                     imageLoader = imageLoader,
-                    onClick = { selectedPhone = phone }
+                    onClick = { selectedPhone = phone },
+                    isAlternate = index % 2 == 1,
+                    initialColorIndex = index % 2  // Alternate starting color
                 )
             }
         }
@@ -915,7 +920,9 @@ fun PhoneCard(
     phone: Phone,
     phoneImages: PhoneImages? = null,
     imageLoader: ImageLoader,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    isAlternate: Boolean = false,
+    initialColorIndex: Int = 0
 ) {
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
     val context = LocalContext.current
@@ -923,7 +930,7 @@ fun PhoneCard(
 
     // Memoize the formatted price
     val formattedPrice = remember(phone.retailPrice) {
-        "₱${String.format("%,.2f", phone.retailPrice)}"
+        "\u20B1${String.format("%,.2f", phone.retailPrice)}"
     }
 
     // Memoize display name
@@ -962,18 +969,37 @@ fun PhoneCard(
     }
 
     // Pager state for swiping between images
+    // Use initialColorIndex to alternate starting colors between adjacent cards
+    // Use large page count for infinite loop effect
+    val actualColorCount = colorsWithImages.size
+    val infinitePageCount = if (actualColorCount > 1) 10000 else 1
+    val startPage = if (actualColorCount > 1) {
+        // Start in the middle, adjusted for initialColorIndex
+        (infinitePageCount / 2) - ((infinitePageCount / 2) % actualColorCount) + initialColorIndex.coerceIn(0, actualColorCount - 1)
+    } else {
+        0
+    }
+
     val pagerState = rememberPagerState(
-        initialPage = 0,
-        pageCount = { maxOf(1, colorsWithImages.size) }
+        initialPage = startPage,
+        pageCount = { infinitePageCount }
     )
 
+    // Get actual color index from page (for infinite scroll)
+    fun getActualColorIndex(page: Int): Int {
+        return if (actualColorCount > 0) page % actualColorCount else 0
+    }
+
     // Preload and cache adjacent images (only when swiping, not during scroll)
-    val currentColorIndex = pagerState.currentPage
+    val currentColorIndex = getActualColorIndex(pagerState.currentPage)
     LaunchedEffect(currentColorIndex) {
-        // Cache images for previous, current, and next colors
-        listOf(currentColorIndex - 1, currentColorIndex, currentColorIndex + 1)
-            .filter { it in colorsWithImages.indices }
-            .forEach { index ->
+        // Cache images for previous, current, and next colors (with wrap-around)
+        if (actualColorCount > 0) {
+            listOf(
+                (currentColorIndex - 1 + actualColorCount) % actualColorCount,
+                currentColorIndex,
+                (currentColorIndex + 1) % actualColorCount
+            ).distinct().forEach { index ->
                 val colorData = colorsWithImages[index]
 
                 // If not cached yet and has remote URL, download and cache
@@ -999,6 +1025,7 @@ fun PhoneCard(
                     }
                 }
             }
+        }
     }
 
     // State for re-download dialog
@@ -1077,6 +1104,14 @@ fun PhoneCard(
                             isRedownloading = true
 
                             redownloadProgress = "Clearing cache..."
+
+                            // Clear Coil's memory cache for these images
+                            colorsWithImages.forEach { colorData ->
+                                val cacheKey = "${phone.phoneDocId}_${colorData.colorName}_${colorData.cacheVersion}"
+                                imageLoader.memoryCache?.remove(MemoryCache.Key(cacheKey))
+                            }
+
+                            // Delete local cached files
                             colorsWithImages.forEach { colorData ->
                                 val isHighRes = phoneImages?.getImagesForColor(colorData.colorName)?.lowRes.isNullOrEmpty() == true
                                 val file = ImageCacheManager.getLocalFilePath(
@@ -1098,6 +1133,7 @@ fun PhoneCard(
 
                             val total = colorsWithImages.size
                             val updatedColors = colorsWithImages.toMutableList()
+                            val newCacheVersion = System.currentTimeMillis()
 
                             colorsWithImages.forEachIndexed { index, colorData ->
                                 if (!colorData.remoteUrl.isNullOrEmpty()) {
@@ -1112,11 +1148,12 @@ fun PhoneCard(
                                         isHighRes = isHighRes ?: false
                                     )
 
-                                    // Update the color data with new cached path
+                                    // Update the color data with new cached path and cache version
                                     if (cachedPath != null) {
                                         updatedColors[index] = colorData.copy(
                                             imageUrl = cachedPath,
-                                            isCached = true
+                                            isCached = true,
+                                            cacheVersion = newCacheVersion
                                         )
                                     }
                                 }
@@ -1147,6 +1184,12 @@ fun PhoneCard(
         )
     }
 
+    // Alternate card background colors for visual distinction
+    val cardBackgroundColor = Color.White
+
+    // Alternate elevation for subtle depth difference
+    val cardElevation = if (isAlternate) 1.dp else 8.dp
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1156,8 +1199,8 @@ fun PhoneCard(
                 onLongClick = { showRedownloadDialog = true }
             ),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(defaultElevation = cardElevation),
+        colors = CardDefaults.cardColors(containerColor = cardBackgroundColor)
     ) {
         Row(
             modifier = Modifier
@@ -1297,7 +1340,8 @@ fun PhoneCard(
                             modifier = Modifier.fillMaxSize(),
                             beyondViewportPageCount = 1
                         ) { page ->
-                            val colorData = colorsWithImages[page]
+                            val actualIndex = getActualColorIndex(page)
+                            val colorData = colorsWithImages[actualIndex]
                             PhoneImageItem(
                                 colorData = colorData,
                                 phone = phone,
@@ -1349,7 +1393,7 @@ private fun PhoneImageItem(
         contentAlignment = Alignment.Center
     ) {
         if (colorData.imageUrl != null) {
-            val imageModel = remember(colorData.imageUrl, colorData.isCached) {
+            val imageModel = remember(colorData.imageUrl, colorData.isCached, colorData.cacheVersion) {
                 if (colorData.isCached) {
                     java.io.File(colorData.imageUrl)
                 } else {
@@ -1362,7 +1406,7 @@ private fun PhoneImageItem(
                     .data(imageModel)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
-                    .memoryCacheKey("${phone.phoneDocId}_${colorData.colorName}")
+                    .memoryCacheKey("${phone.phoneDocId}_${colorData.colorName}_${colorData.cacheVersion}")
                     .build(),
                 imageLoader = imageLoader,
                 contentDescription = "${phone.manufacturer} ${phone.model} in ${colorData.colorName}",
