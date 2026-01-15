@@ -28,6 +28,13 @@
             android:exported="false"
             android:label="Image Management"
             android:theme="@style/Theme.TechCityAssist" />
+
+        <!-- Phone Detail Activity -->
+        <activity
+            android:name=".PhoneDetailActivity"
+            android:exported="false"
+            android:label="Phone Details"
+            android:theme="@style/Theme.TechCityAssist" />
     </application>
 
 </manifest>

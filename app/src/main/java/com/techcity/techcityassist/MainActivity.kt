@@ -11,6 +11,7 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.ColorFilter
 import android.os.Bundle
 import android.util.Log
@@ -410,6 +411,35 @@ fun matchesManufacturerFilter(phone: Phone, selectedManufacturer: String): Boole
     return phone.manufacturer.equals(selectedManufacturer, ignoreCase = true)
 }
 
+/**
+ * Navigate to Phone Detail Activity
+ */
+fun navigateToPhoneDetail(context: android.content.Context, phone: Phone) {
+    val intent = Intent(context, PhoneDetailActivity::class.java).apply {
+        putExtra(PhoneDetailActivity.EXTRA_PHONE_DOC_ID, phone.phoneDocId)
+        putExtra(PhoneDetailActivity.EXTRA_MANUFACTURER, phone.manufacturer)
+        putExtra(PhoneDetailActivity.EXTRA_MODEL, phone.model)
+        putExtra(PhoneDetailActivity.EXTRA_RAM, phone.ram)
+        putExtra(PhoneDetailActivity.EXTRA_STORAGE, phone.storage)
+        putExtra(PhoneDetailActivity.EXTRA_RETAIL_PRICE, phone.retailPrice)
+        putStringArrayListExtra(PhoneDetailActivity.EXTRA_COLORS, ArrayList(phone.colors))
+        putExtra(PhoneDetailActivity.EXTRA_STOCK_COUNT, phone.stockCount)
+        putExtra(PhoneDetailActivity.EXTRA_CHIPSET, phone.chipset)
+        putExtra(PhoneDetailActivity.EXTRA_FRONT_CAMERA, phone.frontCamera)
+        putExtra(PhoneDetailActivity.EXTRA_REAR_CAMERA, phone.rearCamera)
+        putExtra(PhoneDetailActivity.EXTRA_BATTERY, phone.batteryCapacity)
+        putExtra(PhoneDetailActivity.EXTRA_DISPLAY_TYPE, phone.displayType)
+        putExtra(PhoneDetailActivity.EXTRA_DISPLAY_SIZE, phone.displaySize)
+        putExtra(PhoneDetailActivity.EXTRA_OS, phone.os)
+        putExtra(PhoneDetailActivity.EXTRA_NETWORK, phone.network)
+        putExtra(PhoneDetailActivity.EXTRA_RESOLUTION, phone.resolution)
+        putExtra(PhoneDetailActivity.EXTRA_REFRESH_RATE, phone.refreshRate)
+        putExtra(PhoneDetailActivity.EXTRA_WIRED_CHARGING, phone.wiredCharging)
+        putExtra(PhoneDetailActivity.EXTRA_DEVICE_TYPE, phone.deviceType)
+    }
+    context.startActivity(intent)
+}
+
 @Composable
 fun PhoneListScreen(
     modifier: Modifier = Modifier,
@@ -419,7 +449,9 @@ fun PhoneListScreen(
     val context = LocalContext.current
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var selectedPhone by remember { mutableStateOf<Phone?>(null) }
+
+    // State for showing doc IDs dialog (on long press)
+    var selectedPhoneForDocIds by remember { mutableStateOf<Phone?>(null) }
 
     // Store phone images for all phones (phoneDocId -> PhoneImages)
     var phoneImagesMap by remember { mutableStateOf<Map<String, PhoneImages>>(emptyMap()) }
@@ -717,22 +749,23 @@ fun PhoneListScreen(
         }
     }
 
-    if (selectedPhone != null) {
+    // Dialog for showing document IDs (on long press)
+    if (selectedPhoneForDocIds != null) {
         AlertDialog(
-            onDismissRequest = { selectedPhone = null },
+            onDismissRequest = { selectedPhoneForDocIds = null },
             title = { Text("Document IDs") },
             text = {
                 SelectionContainer {
                     Column {
                         Text(
-                            text = "${selectedPhone!!.manufacturer} ${selectedPhone!!.model}",
+                            text = "${selectedPhoneForDocIds!!.manufacturer} ${selectedPhoneForDocIds!!.model}",
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(text = "Phones Collection (specs):", fontWeight = FontWeight.Medium)
                         Text(
-                            text = selectedPhone!!.phoneDocId.ifEmpty { "Not found" },
+                            text = selectedPhoneForDocIds!!.phoneDocId.ifEmpty { "Not found" },
                             fontSize = 12.sp,
                             color = Color.Gray
                         )
@@ -740,7 +773,7 @@ fun PhoneListScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(text = "Inventory Collection:", fontWeight = FontWeight.Medium)
-                        selectedPhone!!.inventoryDocIds.forEach { docId ->
+                        selectedPhoneForDocIds!!.inventoryDocIds.forEach { docId ->
                             Text(
                                 text = docId,
                                 fontSize = 12.sp,
@@ -752,7 +785,7 @@ fun PhoneListScreen(
 
                         Text(text = "Device Type:", fontWeight = FontWeight.Medium)
                         Text(
-                            text = selectedPhone!!.deviceType.ifEmpty { "Phone" },
+                            text = selectedPhoneForDocIds!!.deviceType.ifEmpty { "Phone" },
                             fontSize = 12.sp,
                             color = Color.Gray
                         )
@@ -760,7 +793,7 @@ fun PhoneListScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { selectedPhone = null }) {
+                TextButton(onClick = { selectedPhoneForDocIds = null }) {
                     Text("Close")
                 }
             }
@@ -810,7 +843,14 @@ fun PhoneListScreen(
                     phone = phone,
                     phoneImages = phoneImagesMap[phone.phoneDocId],
                     imageLoader = imageLoader,
-                    onClick = { selectedPhone = phone },
+                    onClick = {
+                        // Navigate to detail activity
+                        navigateToPhoneDetail(context, phone)
+                    },
+                    onLongClick = {
+                        // Show doc IDs dialog
+                        selectedPhoneForDocIds = phone
+                    },
                     isAlternate = index % 2 == 1,
                     initialColorIndex = index % 2  // Alternate starting color
                 )
@@ -921,6 +961,7 @@ fun PhoneCard(
     phoneImages: PhoneImages? = null,
     imageLoader: ImageLoader,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     isAlternate: Boolean = false,
     initialColorIndex: Int = 0
 ) {
@@ -1190,13 +1231,28 @@ fun PhoneCard(
     // Alternate elevation for subtle depth difference
     val cardElevation = if (isAlternate) 1.dp else 8.dp
 
+    // Get actual screen width to determine if SpecItems will stack vertically
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.dp
+
+    // SpecItem switches to vertical layout when its width < 85dp
+    // Using 800dp threshold to test - will make ALL screens use taller card
+    val useVerticalSpecLayout = screenWidthDp < 800.dp
+
+    // Increase card height when specs stack vertically
+    val cardHeight = if (useVerticalSpecLayout) 330.dp else 300.dp
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(300.dp)
+            .height(cardHeight)
             .combinedClickable(
                 onClick = { onClick() },
-                onLongClick = { showRedownloadDialog = true }
+                onLongClick = {
+                    // Show both the re-download dialog and doc IDs on long press
+                    showRedownloadDialog = true
+                    onLongClick()
+                }
             ),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = cardElevation),
@@ -1268,57 +1324,83 @@ fun PhoneCard(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Bottom section - RAM, Storage, Price
-                Row(
+                // Bottom section - RAM, Storage, Price (responsive font sizing)
+
+                // Get screen width for responsive layout decisions
+                val screenConfig = LocalConfiguration.current
+                val screenWidth = screenConfig.screenWidthDp.dp
+                // Using 800dp threshold to force small layout for testing (adjust later)
+                val useSmallLayout = screenWidth < 800.dp
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 48.dp, end = 0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(start = if (useSmallLayout) 24.dp else 48.dp, end = 0.dp)
                 ) {
-                    // First 3 columns worth of space for RAM and Storage
+                    // Calculate font scale based on available width
+                    // Default sizes at 600dp width, scale down for smaller screens
+                    val scaleFactor = (this.maxWidth / 600.dp).coerceAtMost(1f)
+                    val ramStorageFontSize = (13 * scaleFactor).coerceAtLeast(11f).sp
+                    val priceFontSize = (24 * scaleFactor).coerceAtLeast(20f).sp
+                    val chipPaddingH = (14 * scaleFactor).coerceAtLeast(8f).dp
+                    val chipPaddingV = (8 * scaleFactor).coerceAtLeast(4f).dp
+
+                    // Reduce spacing when using vertical spec layout (smaller screens)
+                    val useVerticalSpecLayout = this.maxWidth < 340.dp
+                    val storagePriceSpacing = if (useVerticalSpecLayout) 0.dp else 20.dp
+
+                    // Adjust weights to give price more space on smaller screens
+                    val ramStorageWeight = if (useVerticalSpecLayout) 1f else 3f
+                    val priceWeight = if (useVerticalSpecLayout) 3f else 1.5f
+
                     Row(
-                        modifier = Modifier.weight(3f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(storagePriceSpacing ),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color.White,
-                            modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                        // First 3 columns worth of space for RAM and Storage
+                        Row(
+                            modifier = Modifier.weight(ramStorageWeight),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = "${phone.ram}GB RAM",
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                fontSize = 13.sp,
-                                color = Color(0xFF555555)
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.White,
+                                modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                            ) {
+                                Text(
+                                    text = "${phone.ram}GB RAM",
+                                    modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
+                                    fontSize = ramStorageFontSize,
+                                    color = Color(0xFF555555)
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.White,
+                                modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                            ) {
+                                Text(
+                                    text = "${phone.storage}GB Storage",
+                                    modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
+                                    fontSize = ramStorageFontSize,
+                                    color = Color(0xFF555555)
+                                )
+                            }
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color.White,
-                            modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
-                        ) {
-                            Text(
-                                text = "${phone.storage}GB Storage",
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                fontSize = 13.sp,
-                                color = Color(0xFF555555)
-                            )
-                        }
+                        // Price aligned with 4th column (Charging/Rear Cam)
+                        Text(
+                            text = formattedPrice,
+                            modifier = Modifier.weight(priceWeight),
+                            fontSize = priceFontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFDB2E2E),
+                            maxLines = 1,
+                            softWrap = false,
+                            textAlign = TextAlign.End
+                        )
                     }
-
-                    // Price aligned with 4th column (Charging/Rear Cam)
-                    Text(
-                        text = formattedPrice,
-                        modifier = Modifier.weight(1.5f),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFDB2E2E),
-                        maxLines = 1,
-                        softWrap = false,
-                        textAlign = TextAlign.End
-                    )
                 }
             }
 
@@ -1444,37 +1526,76 @@ fun SpecItem(
         }
     }
 
-    Column(modifier = modifier) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (imageRequest != null) {
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-            }
+    BoxWithConstraints(modifier = modifier) {
+        // Switch to vertical layout when width is constrained (< 85dp)
+        val useVerticalLayout = this.maxWidth < 85.dp
 
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                color = Color(0xFF888888),
-                maxLines = 2,
-                lineHeight = 13.sp
-            )
-        }
-
-        Text(
-            text = value,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF333333),
-            maxLines = 1,
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center
-        )
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (useVerticalLayout) {
+                // Vertical layout: Icon -> Label -> Value (for smaller screens)
+                if (imageRequest != null) {
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Text(
+                    text = label,
+                    fontSize = 10.sp,
+                    color = Color(0xFF888888),
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = value,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF333333),
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                // Horizontal layout: Icon + Label side by side, Value below (for larger screens)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (imageRequest != null) {
+                        AsyncImage(
+                            model = imageRequest,
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        color = Color(0xFF888888),
+                        maxLines = 2,
+                        lineHeight = 13.sp
+                    )
+                }
+
+                Text(
+                    text = value,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF333333),
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 
