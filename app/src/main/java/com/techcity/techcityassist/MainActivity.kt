@@ -1242,6 +1242,9 @@ fun PhoneCard(
     // Increase card height when specs stack vertically
     val cardHeight = if (useVerticalSpecLayout) 330.dp else 300.dp
 
+    // Determine padding for spec rows based on layout
+    val specRowStartPadding = if (useVerticalSpecLayout) 16.dp else 48.dp
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1298,13 +1301,13 @@ fun PhoneCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 48.dp, end = 0.dp),
+                        .padding(start = specRowStartPadding, end = 0.dp),
                     horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, modifier = Modifier.weight(1f))
                     SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, modifier = Modifier.weight(1f))
                     SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Rear Cam", value = phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, modifier = Modifier.weight(1f))
+                    SpecItem(label = "Rear Cam", value = if (useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, modifier = Modifier.weight(1f))
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1313,7 +1316,7 @@ fun PhoneCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 48.dp, end = 0.dp),
+                        .padding(start = specRowStartPadding, end = 0.dp),
                     horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, modifier = Modifier.weight(1f))
@@ -1371,6 +1374,7 @@ fun PhoneCard(
                                     text = "${phone.ram}GB RAM",
                                     modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
                                     fontSize = ramStorageFontSize,
+                                    fontWeight = FontWeight.Bold,
                                     color = Color(0xFF555555)
                                 )
                             }
@@ -1384,6 +1388,7 @@ fun PhoneCard(
                                     text = "${phone.storage}GB Storage",
                                     modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
                                     fontSize = ramStorageFontSize,
+                                    fontWeight = FontWeight.Bold,
                                     color = Color(0xFF555555)
                                 )
                             }
@@ -1446,6 +1451,18 @@ fun PhoneCard(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
+
+                // Current color name - updates when swiping
+                val currentColorName = colorsWithImages.getOrNull(getActualColorIndex(pagerState.currentPage))?.colorName ?: ""
+                if (currentColorName.isNotEmpty()) {
+                    Text(
+                        text = currentColorName,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF555555)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
 
                 // Color dots below image
                 Row(

@@ -136,6 +136,13 @@ fun PhoneDetailScreen(
     var selectedColorIndex by remember { mutableStateOf(0) }
     var isLoadingImages by remember { mutableStateOf(true) }
 
+    // State for all variants (RAM/Storage/Price configurations)
+    var variants by remember { mutableStateOf<List<PhoneVariant>>(emptyList()) }
+    var isLoadingVariants by remember { mutableStateOf(true) }
+
+    // State for all unique colors across all variants
+    var allAvailableColors by remember { mutableStateOf<List<String>>(phone.colors) }
+
     // Fetch phone images
     LaunchedEffect(phone.phoneDocId) {
         if (phone.phoneDocId.isNotEmpty()) {
@@ -152,8 +159,69 @@ fun PhoneDetailScreen(
         isLoadingImages = false
     }
 
+    // Fetch all variants for this phone model
+    LaunchedEffect(phone.manufacturer, phone.model) {
+        if (phone.manufacturer.isNotEmpty() && phone.model.isNotEmpty()) {
+            try {
+                val db = FirebaseFirestore.getInstance()
+                val inventoryResult = db.collection("inventory")
+                    .whereEqualTo("manufacturer", phone.manufacturer)
+                    .whereEqualTo("model", phone.model)
+                    .whereIn("status", listOf("On-Hand", "On-Display"))
+                    .get()
+                    .await()
+
+                // Group by RAM and Storage to get unique variants
+                val variantMap = mutableMapOf<String, PhoneVariant>()
+                val allColors = mutableSetOf<String>()
+
+                for (doc in inventoryResult.documents) {
+                    val ram = doc.getString("ram") ?: ""
+                    val storage = doc.getString("storage") ?: ""
+                    val retailPrice = doc.getDouble("retailPrice") ?: 0.0
+                    val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
+                    val color = doc.getString("color") ?: ""
+
+                    // Collect all unique colors
+                    if (color.isNotEmpty()) {
+                        allColors.add(color)
+                    }
+
+                    val key = "$ram|$storage"
+                    if (!variantMap.containsKey(key)) {
+                        variantMap[key] = PhoneVariant(
+                            ram = ram,
+                            storage = storage,
+                            retailPrice = retailPrice,
+                            dealersPrice = dealersPrice
+                        )
+                    }
+                }
+
+                // Sort by price
+                variants = variantMap.values.sortedBy { it.retailPrice }
+
+                // Update allAvailableColors
+                allAvailableColors = allColors.toList().sorted()
+            } catch (e: Exception) {
+                Log.e("PhoneDetail", "Error fetching variants", e)
+                // Fall back to the single variant passed in
+                variants = listOf(
+                    PhoneVariant(
+                        ram = phone.ram,
+                        storage = phone.storage,
+                        retailPrice = phone.retailPrice,
+                        dealersPrice = 0.0
+                    )
+                )
+                allAvailableColors = phone.colors
+            }
+        }
+        isLoadingVariants = false
+    }
+
     // Get current color and image URL based on selected index
-    val currentColor = phone.colors.getOrNull(selectedColorIndex) ?: phone.colors.firstOrNull() ?: ""
+    val currentColor = allAvailableColors.getOrNull(selectedColorIndex) ?: allAvailableColors.firstOrNull() ?: ""
     val colorImages = phoneImages?.getImagesForColor(currentColor)
     val imageUrl = colorImages?.highRes?.ifEmpty { colorImages.lowRes } ?: colorImages?.lowRes
 
@@ -192,7 +260,7 @@ fun PhoneDetailScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
+                    .padding(vertical = 0.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -212,29 +280,29 @@ fun PhoneDetailScreen(
                 )
             }
 
+            // Added spacer between model name and image
+            Spacer(modifier = Modifier.height(48.dp))
+
             // Main content - Phone image and specs
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxWidth(),  // CHANGED: Removed fillMaxHeight(0.75f) so Row wraps to content
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.Top
             ) {
                 // Left side - Phone Image (much larger) with color dots right below
                 Column(
                     modifier = Modifier
-                        .weight(2f)
-                        .fillMaxHeight(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .weight(1.8f),  // CHANGED: Removed fillMaxHeight() so Column wraps to content
+                    horizontalAlignment = Alignment.Start,
                     verticalArrangement = Arrangement.Top
                 ) {
-                    // Phone image - large with tight border, image scaled to crop whitespace
+                    // Phone image - large, image scaled to crop whitespace
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight(0.88f)
-                            .wrapContentWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
+                            .height(380.dp)  // CHANGED: From fillMaxHeight(0.70f) to fixed height
+                            .fillMaxWidth(0.85f)
+                            .clip(RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (isLoadingImages) {
@@ -270,176 +338,224 @@ fun PhoneDetailScreen(
                         }
                     }
 
-                    // Color dots right below image
-                    if (phone.colors.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // Color name and swatches centered to phone image width
+                    Box(
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            phone.colors.forEachIndexed { index, colorName ->
-                                val hexColor = phoneImages?.getHexColorForColor(colorName) ?: ""
-                                val isSelected = index == selectedColorIndex
-
-                                DetailColorDot(
-                                    colorName = colorName,
-                                    hexColor = hexColor,
-                                    isSelected = isSelected,
-                                    onClick = { selectedColorIndex = index }
+                            // Color name below image
+                            if (currentColor.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = currentColor,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF555555)
                                 )
+                            }
+
+                            // Color dots right below color name - show all unique colors
+                            if (allAvailableColors.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    allAvailableColors.forEachIndexed { index, colorName ->
+                                        val hexColor = phoneImages?.getHexColorForColor(colorName) ?: ""
+                                        val isSelected = index == selectedColorIndex
+
+                                        DetailColorDot(
+                                            colorName = colorName,
+                                            hexColor = hexColor,
+                                            isSelected = isSelected,
+                                            onClick = { selectedColorIndex = index }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                // Right side - Specs list (more specs)
+                // Right side - Specs list
                 Column(
                     modifier = Modifier
-                        .weight(0.9f)
-                        .fillMaxHeight()
-                        .padding(start = 8.dp),
-                    verticalArrangement = Arrangement.Center
+                        .weight(1.1f)
+                        .height(440.dp)  // Matches image height + color name + color swatches
+                        .offset(x = (-10).dp),
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Display size
                     if (phone.displaySize.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.screen_size_icon,
-                            text = "${phone.displaySize} inches",
+                            label = "Display Size",
+                            value = "${phone.displaySize} inches",
                             isSvg = false
                         )
                     }
 
                     // Resolution
                     if (phone.resolution.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.resolution_icon,
-                            text = phone.resolution,
+                            label = "Resolution",
+                            value = phone.resolution,
                             isSvg = false
                         )
                     }
 
                     // Refresh rate
                     if (phone.refreshRate > 0) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.refresh_rate_icon,
-                            text = "${phone.refreshRate} Hz",
+                            label = "Refresh Rate",
+                            value = "${phone.refreshRate} Hz",
                             isSvg = false
                         )
                     }
 
                     // Chipset
                     if (phone.chipset.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.chipset_icon,
-                            text = phone.chipset,
+                            label = "Chipset",
+                            value = phone.chipset,
                             isSvg = false
                         )
                     }
 
                     // Battery
                     if (phone.batteryCapacity > 0) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.battery_icon,
-                            text = "${formatter.format(phone.batteryCapacity)} mAh",
+                            label = "Battery",
+                            value = "${formatter.format(phone.batteryCapacity)} mAh",
                             isSvg = false
                         )
                     }
 
                     // Charging
                     if (phone.wiredCharging > 0) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.charging_icon,
-                            text = "${phone.wiredCharging}W fast charging",
+                            label = "Charging",
+                            value = "${phone.wiredCharging}W fast charging",
                             isSvg = false
                         )
                     }
 
                     // Rear Camera
                     if (phone.rearCamera.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.rear_camera_icon,
-                            text = "${phone.rearCamera} Rear Camera",
+                            label = "Rear Camera",
+                            value = phone.rearCamera,
                             isSvg = false
                         )
                     }
 
                     // Front Camera
                     if (phone.frontCamera.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.camera_icon,
-                            text = "${phone.frontCamera} Front Camera",
+                            label = "Front Camera",
+                            value = phone.frontCamera,
                             isSvg = false
                         )
                     }
 
                     // Network
                     if (phone.network.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.network_icon,
-                            text = phone.network,
+                            label = "Network",
+                            value = phone.network,
                             isSvg = false
                         )
                     }
 
                     // OS
                     if (phone.os.isNotEmpty()) {
-                        DetailSpecRow(
+                        DetailSpecRowMultiLine(
                             iconRes = R.raw.os_icon,
-                            text = phone.os,
+                            label = "OS",
+                            value = phone.os,
                             isSvg = false
                         )
                     }
                 }
             }
 
-            // Bottom section - Storage/RAM and Price
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Storage and RAM on the left
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White,
-                        modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
-                    ) {
-                        Text(
-                            text = "${phone.ram}GB RAM",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF333333)
-                        )
-                    }
+            // RAM/Storage/Price variants - FULL WIDTH, below main content
+            Spacer(modifier = Modifier.height(45.dp))
 
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White,
-                        modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
-                    ) {
-                        Text(
-                            text = "${phone.storage}GB Storage",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF333333)
-                        )
+            if (isLoadingVariants) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    variants.forEach { variant ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Chips container - takes remaining space after price is measured
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 32.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // RAM chip
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color.White,
+                                    modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                ) {
+                                    Text(
+                                        text = "${variant.ram}GB RAM",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF333333)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Storage chip
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color.White,
+                                    modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                ) {
+                                    Text(
+                                        text = "${variant.storage}GB Storage",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF333333)
+                                    )
+                                }
+                            }
+
+                            // Price - measures first, never clipped
+                            Text(
+                                text = "₱${String.format("%,.2f", variant.retailPrice)}",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFDB2E2E),
+                                modifier = Modifier.padding(end = 32.dp)
+                            )
+                        }
                     }
                 }
-
-                // Price on the right - large and bold
-                Text(
-                    text = "PHP ${String.format("%,.0f", phone.retailPrice)}",
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFFDB2E2E)
-                )
             }
         }
     }
@@ -455,7 +571,7 @@ fun DetailSpecRow(
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(vertical = 8.dp)
+        modifier = Modifier.padding(vertical = 0.dp)
     ) {
         if (isSvg) {
             // For SVG icons in raw folder
@@ -466,7 +582,7 @@ fun DetailSpecRow(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(36.dp)
             )
         } else {
             // For PNG icons in raw folder
@@ -476,19 +592,76 @@ fun DetailSpecRow(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(36.dp)
             )
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
         Text(
             text = text,
-            fontSize = 18.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
             color = Color(0xFF222222),
-            lineHeight = 24.sp
+            lineHeight = 18.sp
         )
+    }
+}
+
+@Composable
+fun DetailSpecRowMultiLine(
+    iconRes: Int,
+    label: String,
+    value: String,
+    isSvg: Boolean = true
+) {
+    val context = LocalContext.current
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 0.dp)
+    ) {
+        if (isSvg) {
+            // For SVG icons in raw folder
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(iconRes)
+                    .decoderFactory(coil.decode.SvgDecoder.Factory())
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier.size(36.dp)
+            )
+        } else {
+            // For PNG icons in raw folder
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(iconRes)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier.size(36.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Column {
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF888888),
+                lineHeight = 16.sp
+            )
+            Text(
+                text = value,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF222222),
+                lineHeight = 18.sp
+            )
+        }
     }
 }
 
