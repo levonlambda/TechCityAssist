@@ -43,6 +43,7 @@ import java.util.Locale
 class PhoneDetailActivity : ComponentActivity() {
 
     companion object {
+        const val EXTRA_PHONE_INDEX = "phone_index"
         const val EXTRA_PHONE_DOC_ID = "phone_doc_id"
         const val EXTRA_MANUFACTURER = "manufacturer"
         const val EXTRA_MODEL = "model"
@@ -69,55 +70,13 @@ class PhoneDetailActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Extract phone data from intent
-        val phoneDocId = intent.getStringExtra(EXTRA_PHONE_DOC_ID) ?: ""
-        val manufacturer = intent.getStringExtra(EXTRA_MANUFACTURER) ?: ""
-        val model = intent.getStringExtra(EXTRA_MODEL) ?: ""
-        val ram = intent.getStringExtra(EXTRA_RAM) ?: ""
-        val storage = intent.getStringExtra(EXTRA_STORAGE) ?: ""
-        val retailPrice = intent.getDoubleExtra(EXTRA_RETAIL_PRICE, 0.0)
-        val colors = intent.getStringArrayListExtra(EXTRA_COLORS) ?: arrayListOf()
-        val stockCount = intent.getIntExtra(EXTRA_STOCK_COUNT, 0)
-        val chipset = intent.getStringExtra(EXTRA_CHIPSET) ?: ""
-        val frontCamera = intent.getStringExtra(EXTRA_FRONT_CAMERA) ?: ""
-        val rearCamera = intent.getStringExtra(EXTRA_REAR_CAMERA) ?: ""
-        val battery = intent.getIntExtra(EXTRA_BATTERY, 0)
-        val displayType = intent.getStringExtra(EXTRA_DISPLAY_TYPE) ?: ""
-        val displaySize = intent.getStringExtra(EXTRA_DISPLAY_SIZE) ?: ""
-        val os = intent.getStringExtra(EXTRA_OS) ?: ""
-        val network = intent.getStringExtra(EXTRA_NETWORK) ?: ""
-        val resolution = intent.getStringExtra(EXTRA_RESOLUTION) ?: ""
-        val refreshRate = intent.getIntExtra(EXTRA_REFRESH_RATE, 0)
-        val wiredCharging = intent.getIntExtra(EXTRA_WIRED_CHARGING, 0)
-        val deviceType = intent.getStringExtra(EXTRA_DEVICE_TYPE) ?: ""
-
-        val phone = Phone(
-            manufacturer = manufacturer,
-            model = model,
-            ram = ram,
-            storage = storage,
-            retailPrice = retailPrice,
-            colors = colors,
-            stockCount = stockCount,
-            chipset = chipset,
-            frontCamera = frontCamera,
-            rearCamera = rearCamera,
-            batteryCapacity = battery,
-            displayType = displayType,
-            displaySize = displaySize,
-            os = os,
-            network = network,
-            resolution = resolution,
-            refreshRate = refreshRate,
-            wiredCharging = wiredCharging,
-            phoneDocId = phoneDocId,
-            deviceType = deviceType
-        )
+        // Get the initial phone index
+        val initialIndex = intent.getIntExtra(EXTRA_PHONE_INDEX, 0)
 
         setContent {
             TechCityAssistTheme {
                 PhoneDetailScreen(
-                    phone = phone,
+                    initialIndex = initialIndex,
                     onBackPress = { finish() }
                 )
             }
@@ -128,30 +87,108 @@ class PhoneDetailActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PhoneDetailScreen(
-    phone: Phone,
+    initialIndex: Int,
     onBackPress: () -> Unit
+) {
+    // Get the unique phone models (one per manufacturer+model) from the holder
+    val phones = PhoneListHolder.uniquePhoneModels
+    val phoneImagesMapHolder = PhoneListHolder.phoneImagesMap
+
+    // Handle empty list case
+    if (phones.isEmpty()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { },
+                    navigationIcon = {
+                        IconButton(onClick = onBackPress) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.White
+                    )
+                )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No phones available", color = Color.Gray)
+            }
+        }
+        return
+    }
+
+    // Pager state for swiping between phones
+    val phonePagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, phones.size - 1),
+        pageCount = { phones.size }
+    )
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { },
+                navigationIcon = {
+                    IconButton(onClick = onBackPress) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.White
+                )
+            )
+        }
+    ) { innerPadding ->
+        HorizontalPager(
+            state = phonePagerState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            beyondViewportPageCount = 1
+        ) { page ->
+            val phone = phones[page]
+            val initialPhoneImages = phoneImagesMapHolder[phone.phoneDocId]
+
+            PhoneDetailContent(
+                phone = phone,
+                initialPhoneImages = initialPhoneImages
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PhoneDetailContent(
+    phone: Phone,
+    initialPhoneImages: PhoneImages?
 ) {
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
 
-    // State for phone images
-    var phoneImages by remember { mutableStateOf<PhoneImages?>(null) }
-    var selectedColorIndex by remember { mutableStateOf(0) }
-    var isLoadingImages by remember { mutableStateOf(true) }
+    // State for phone images - use initial if available, fetch if not
+    var phoneImages by remember(phone.phoneDocId) { mutableStateOf(initialPhoneImages) }
+    var selectedColorIndex by remember(phone.phoneDocId) { mutableStateOf(0) }
+    var isLoadingImages by remember(phone.phoneDocId) { mutableStateOf(initialPhoneImages == null) }
 
     // State for all variants (RAM/Storage/Price configurations)
-    var variants by remember { mutableStateOf<List<PhoneVariant>>(emptyList()) }
-    var isLoadingVariants by remember { mutableStateOf(true) }
+    var variants by remember(phone.phoneDocId) { mutableStateOf<List<PhoneVariant>>(emptyList()) }
+    var isLoadingVariants by remember(phone.phoneDocId) { mutableStateOf(true) }
 
     // State for all unique colors across all variants
-    var allAvailableColors by remember { mutableStateOf<List<String>>(phone.colors) }
+    var allAvailableColors by remember(phone.phoneDocId) { mutableStateOf(phone.colors) }
 
     // State for tracking which colors are available for each variant
-    var variantColorsMap by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var variantColorsMap by remember(phone.phoneDocId) { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
 
-    // Fetch phone images
+    // Fetch phone images if not already available
     LaunchedEffect(phone.phoneDocId) {
-        if (phone.phoneDocId.isNotEmpty()) {
+        if (phone.phoneDocId.isNotEmpty() && phoneImages == null) {
             try {
                 val db = FirebaseFirestore.getInstance()
                 val doc = db.collection("phone_images").document(phone.phoneDocId).get().await()
@@ -161,8 +198,10 @@ fun PhoneDetailScreen(
             } catch (e: Exception) {
                 Log.e("PhoneDetail", "Error fetching images", e)
             }
+            isLoadingImages = false
+        } else {
+            isLoadingImages = false
         }
-        isLoadingImages = false
     }
 
     // Fetch all variants for this phone model
@@ -251,412 +290,396 @@ fun PhoneDetailScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onBackPress) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .padding(horizontal = 24.dp)
+    ) {
+        // Model name centered at top - large and bold like reference
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 0.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
+                Image(
+                    painter = painterResource(id = R.drawable.apple_logo),
+                    contentDescription = "Apple logo",
+                    modifier = Modifier.size(56.dp)
                 )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(
+                text = displayName,
+                fontSize = 42.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF1A1A1A)
             )
         }
-    ) { innerPadding ->
-        Column(
+
+        // Added spacer between model name and image
+        Spacer(modifier = Modifier.height(48.dp))
+
+        // Main content - Phone image and specs
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .background(Color.White)
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.Top
         ) {
-            // Model name centered at top - large and bold like reference
-            Row(
+            // Left side - Phone Image (much larger) with color dots right below
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 0.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
+                    .weight(1.8f),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.Top
             ) {
-                if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
-                    Image(
-                        painter = painterResource(id = R.drawable.apple_logo),
-                        contentDescription = "Apple logo",
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+                // Pager state for swiping between colors
+                val colorCount = allAvailableColors.size
+                val infinitePageCount = if (colorCount > 1) 10000 else 1
+                val startPage = if (colorCount > 1) {
+                    (infinitePageCount / 2) - ((infinitePageCount / 2) % colorCount)
+                } else {
+                    0
                 }
-                Text(
-                    text = displayName,
-                    fontSize = 42.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF1A1A1A)
+
+                val pagerState = rememberPagerState(
+                    initialPage = startPage,
+                    pageCount = { infinitePageCount }
                 )
-            }
 
-            // Added spacer between model name and image
-            Spacer(modifier = Modifier.height(48.dp))
+                // Get actual color index from page (for infinite scroll)
+                fun getActualColorIndex(page: Int): Int {
+                    return if (colorCount > 0) page % colorCount else 0
+                }
 
-            // Main content - Phone image and specs
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(),  // CHANGED: Removed fillMaxHeight(0.75f) so Row wraps to content
-                horizontalArrangement = Arrangement.Start,
-                verticalAlignment = Alignment.Top
-            ) {
-                // Left side - Phone Image (much larger) with color dots right below
-                Column(
+                // Sync selectedColorIndex when user swipes
+                LaunchedEffect(pagerState.currentPage) {
+                    val newIndex = getActualColorIndex(pagerState.currentPage)
+                    if (newIndex != selectedColorIndex) {
+                        selectedColorIndex = newIndex
+                    }
+                }
+
+                // Sync pager when user clicks on color swatch
+                LaunchedEffect(selectedColorIndex) {
+                    val currentPagerIndex = getActualColorIndex(pagerState.currentPage)
+                    if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
+                        // Calculate the closest page to scroll to
+                        val currentPage = pagerState.currentPage
+                        val currentActual = currentPage % colorCount
+                        val diff = selectedColorIndex - currentActual
+                        val targetPage = currentPage + diff
+                        pagerState.animateScrollToPage(targetPage)
+                    }
+                }
+
+                // Phone image with swipe - large, image scaled to crop whitespace
+                Box(
                     modifier = Modifier
-                        .weight(1.8f),  // CHANGED: Removed fillMaxHeight() so Column wraps to content
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.Top
+                        .height(418.dp)
+                        .fillMaxWidth(0.85f)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Pager state for swiping between colors
-                    val colorCount = allAvailableColors.size
-                    val infinitePageCount = if (colorCount > 1) 10000 else 1
-                    val startPage = if (colorCount > 1) {
-                        (infinitePageCount / 2) - ((infinitePageCount / 2) % colorCount)
-                    } else {
-                        0
-                    }
+                    if (isLoadingImages) {
+                        CircularProgressIndicator()
+                    } else if (allAvailableColors.isNotEmpty()) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            beyondViewportPageCount = 1
+                        ) { page ->
+                            val actualIndex = getActualColorIndex(page)
+                            val colorName = allAvailableColors.getOrNull(actualIndex) ?: ""
+                            val colorImagesForPage = phoneImages?.getImagesForColor(colorName)
+                            val imageUrlForPage = colorImagesForPage?.highRes?.ifEmpty { colorImagesForPage.lowRes } ?: colorImagesForPage?.lowRes
 
-                    val pagerState = rememberPagerState(
-                        initialPage = startPage,
-                        pageCount = { infinitePageCount }
-                    )
+                            if (imageUrlForPage != null) {
+                                // Check for cached image first
+                                val isHighRes = colorImagesForPage?.lowRes.isNullOrEmpty() == true
+                                val cachedPath = ImageCacheManager.getLocalImageUri(
+                                    context, phone.phoneDocId, colorName, isHighRes
+                                )
 
-                    // Get actual color index from page (for infinite scroll)
-                    fun getActualColorIndex(page: Int): Int {
-                        return if (colorCount > 0) page % colorCount else 0
-                    }
-
-                    // Sync selectedColorIndex when user swipes
-                    LaunchedEffect(pagerState.currentPage) {
-                        val newIndex = getActualColorIndex(pagerState.currentPage)
-                        if (newIndex != selectedColorIndex) {
-                            selectedColorIndex = newIndex
-                        }
-                    }
-
-                    // Sync pager when user clicks on color swatch
-                    LaunchedEffect(selectedColorIndex) {
-                        val currentPagerIndex = getActualColorIndex(pagerState.currentPage)
-                        if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
-                            // Calculate the closest page to scroll to
-                            val currentPage = pagerState.currentPage
-                            val currentActual = currentPage % colorCount
-                            val diff = selectedColorIndex - currentActual
-                            val targetPage = currentPage + diff
-                            pagerState.animateScrollToPage(targetPage)
-                        }
-                    }
-
-                    // Phone image with swipe - large, image scaled to crop whitespace
-                    Box(
-                        modifier = Modifier
-                            .height(418.dp)  // Increased by ~10%
-                            .fillMaxWidth(0.85f)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isLoadingImages) {
-                            CircularProgressIndicator()
-                        } else if (allAvailableColors.isNotEmpty()) {
-                            HorizontalPager(
-                                state = pagerState,
-                                modifier = Modifier.fillMaxSize(),
-                                beyondViewportPageCount = 1
-                            ) { page ->
-                                val actualIndex = getActualColorIndex(page)
-                                val colorName = allAvailableColors.getOrNull(actualIndex) ?: ""
-                                val colorImagesForPage = phoneImages?.getImagesForColor(colorName)
-                                val imageUrlForPage = colorImagesForPage?.highRes?.ifEmpty { colorImagesForPage.lowRes } ?: colorImagesForPage?.lowRes
-
-                                if (imageUrlForPage != null) {
-                                    // Check for cached image first
-                                    val isHighRes = colorImagesForPage?.lowRes.isNullOrEmpty() == true
-                                    val cachedPath = ImageCacheManager.getLocalImageUri(
-                                        context, phone.phoneDocId, colorName, isHighRes
-                                    )
-
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(cachedPath ?: imageUrlForPage)
-                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .diskCachePolicy(CachePolicy.ENABLED)
-                                            .build(),
-                                        contentDescription = "$displayName in $colorName",
-                                        modifier = Modifier
-                                            .fillMaxHeight()
-                                            .graphicsLayer {
-                                                scaleX = 1.15f  // Scale up to crop whitespace edges
-                                                scaleY = 1.15f
-                                            },
-                                        contentScale = ContentScale.FillHeight
-                                    )
-                                } else {
-                                    Text(
-                                        text = "No Image Available",
-                                        color = Color.Gray,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "No Image Available",
-                                color = Color.Gray,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-
-                    // Color name and swatches centered to phone image width
-                    Box(
-                        modifier = Modifier.fillMaxWidth(0.85f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            // Color name below image
-                            if (currentColor.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(6.dp))
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(cachedPath ?: imageUrlForPage)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build(),
+                                    contentDescription = "$displayName in $colorName",
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .graphicsLayer {
+                                            scaleX = 1.15f
+                                            scaleY = 1.15f
+                                        },
+                                    contentScale = ContentScale.FillHeight
+                                )
+                            } else {
                                 Text(
-                                    text = currentColor,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF555555)
+                                    text = "No Image Available",
+                                    color = Color.Gray,
+                                    fontSize = 14.sp
                                 )
                             }
-
-                            // Color dots right below color name - show all unique colors
-                            if (allAvailableColors.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    allAvailableColors.forEachIndexed { index, colorName ->
-                                        val hexColor = phoneImages?.getHexColorForColor(colorName) ?: ""
-                                        val isSelected = index == selectedColorIndex
-
-                                        DetailColorDot(
-                                            colorName = colorName,
-                                            hexColor = hexColor,
-                                            isSelected = isSelected,
-                                            onClick = { selectedColorIndex = index }
-                                        )
-                                    }
-                                }
-                            }
                         }
-                    }
-                }
-
-                // Right side - Specs list
-                Column(
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .height(478.dp)  // Matches image height (418) + color name + color swatches (~60)
-                        .offset(x = (-10).dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // 1. Display size
-                    if (phone.displaySize.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.screen_size_icon,
-                            label = "Display Size",
-                            value = "${phone.displaySize} inches",
-                            isSvg = false,
-                            iconSize = 50
-                        )
-                    }
-
-                    // 2. Resolution
-                    if (phone.resolution.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.resolution_icon,
-                            label = "Resolution",
-                            value = phone.resolution,
-                            isSvg = false
-                        )
-                    }
-
-                    // 3. Refresh rate
-                    if (phone.refreshRate > 0) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.refresh_rate_icon,
-                            label = "Refresh Rate",
-                            value = "${phone.refreshRate} Hz",
-                            isSvg = false
-                        )
-                    }
-
-                    // 4. Front Camera
-                    if (phone.frontCamera.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.camera_icon,
-                            label = "Front Camera",
-                            value = phone.frontCamera,
-                            isSvg = false
-                        )
-                    }
-
-                    // 5. Rear Camera
-                    if (phone.rearCamera.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.rear_camera_icon,
-                            label = "Rear Camera",
-                            value = phone.rearCamera,
-                            isSvg = false
-                        )
-                    }
-
-                    // 6. Chipset
-                    if (phone.chipset.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.chipset_icon,
-                            label = "Chipset",
-                            value = phone.chipset,
-                            isSvg = false
-                        )
-                    }
-
-                    // 7. Battery
-                    if (phone.batteryCapacity > 0) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.battery_icon,
-                            label = "Battery",
-                            value = "${formatter.format(phone.batteryCapacity)} mAh",
-                            isSvg = false
-                        )
-                    }
-
-                    // 8. Charging
-                    if (phone.wiredCharging > 0) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.charging_icon,
-                            label = "Charging",
-                            value = "${phone.wiredCharging}W fast charging",
-                            isSvg = false
-                        )
-                    }
-
-                    // 9. OS
-                    if (phone.os.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.os_icon,
-                            label = "OS",
-                            value = phone.os,
-                            isSvg = false
-                        )
-                    }
-
-                    // 10. Network
-                    if (phone.network.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.network_icon,
-                            label = "Network",
-                            value = phone.network,
-                            isSvg = false
+                    } else {
+                        Text(
+                            text = "No Image Available",
+                            color = Color.Gray,
+                            fontSize = 14.sp
                         )
                     }
                 }
-            }
 
-            // RAM/Storage/Price variants - FULL WIDTH, below main content
-            Spacer(modifier = Modifier.height(45.dp))
-
-            if (isLoadingVariants) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            } else {
-                // Centered container - variants grow from center
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),  // Take remaining space
-                    verticalArrangement = Arrangement.Center,  // Center variants vertically
-                    horizontalAlignment = Alignment.CenterHorizontally
+                // Color name and swatches centered to phone image width
+                Box(
+                    modifier = Modifier.fillMaxWidth(0.85f),
+                    contentAlignment = Alignment.Center
                 ) {
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        variants.forEach { variant ->
-                            val variantKey = "${variant.ram}|${variant.storage}"
-                            val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
-                            val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
+                        // Color name below image
+                        if (currentColor.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = currentColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF555555)
+                            )
+                        }
 
+                        // Color dots right below color name - show all unique colors
+                        if (allAvailableColors.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Chips container - takes remaining space after price is measured
-                                Row(
+                                allAvailableColors.forEachIndexed { index, colorName ->
+                                    val hexColor = phoneImages?.getHexColorForColor(colorName) ?: ""
+                                    val isSelected = index == selectedColorIndex
+
+                                    DetailColorDot(
+                                        colorName = colorName,
+                                        hexColor = hexColor,
+                                        isSelected = isSelected,
+                                        onClick = { selectedColorIndex = index }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Right side - Specs list
+            Column(
+                modifier = Modifier
+                    .weight(1.1f)
+                    .height(478.dp)
+                    .offset(x = (-10).dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // 1. Display size
+                if (phone.displaySize.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.screen_size_icon,
+                        label = "Display Size",
+                        value = "${phone.displaySize} inches",
+                        isSvg = false,
+                        iconSize = 50,
+                        iconOffsetX = -4
+                    )
+                }
+
+                // 2. Resolution
+                if (phone.resolution.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.resolution_icon,
+                        label = "Resolution",
+                        value = phone.resolution,
+                        isSvg = false
+                    )
+                }
+
+                // 3. Refresh rate
+                if (phone.refreshRate > 0) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.refresh_rate_icon,
+                        label = "Refresh Rate",
+                        value = "${phone.refreshRate} Hz",
+                        isSvg = false
+                    )
+                }
+
+                // 4. Front Camera
+                if (phone.frontCamera.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.camera_icon,
+                        label = "Front Camera",
+                        value = phone.frontCamera,
+                        isSvg = false
+                    )
+                }
+
+                // 5. Rear Camera
+                if (phone.rearCamera.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.rear_camera_icon,
+                        label = "Rear Camera",
+                        value = phone.rearCamera,
+                        isSvg = false
+                    )
+                }
+
+                // 6. Chipset
+                if (phone.chipset.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.chipset_icon,
+                        label = "Chipset",
+                        value = phone.chipset,
+                        isSvg = false
+                    )
+                }
+
+                // 7. Battery
+                if (phone.batteryCapacity > 0) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.battery_icon,
+                        label = "Battery",
+                        value = "${formatter.format(phone.batteryCapacity)} mAh",
+                        isSvg = false
+                    )
+                }
+
+                // 8. Charging
+                if (phone.wiredCharging > 0) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.charging_icon,
+                        label = "Charging",
+                        value = "${phone.wiredCharging}W fast charging",
+                        isSvg = false
+                    )
+                }
+
+                // 9. OS
+                if (phone.os.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.os_icon,
+                        label = "OS",
+                        value = phone.os,
+                        isSvg = false
+                    )
+                }
+
+                // 10. Network
+                if (phone.network.isNotEmpty()) {
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.network_icon,
+                        label = "Network",
+                        value = phone.network,
+                        isSvg = false
+                    )
+                }
+            }
+        }
+
+        // RAM/Storage/Price variants - FULL WIDTH, below main content
+        Spacer(modifier = Modifier.height(45.dp))
+
+        if (isLoadingVariants) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+        } else {
+            // Centered container - variants grow from center
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    variants.forEach { variant ->
+                        val variantKey = "${variant.ram}|${variant.storage}"
+                        val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
+                        val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Chips container - takes remaining space after price is measured
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 32.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // RAM chip
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 32.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .widthIn(min = 95.dp)
+                                        .border(
+                                            1.dp,
+                                            if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
+                                            RoundedCornerShape(6.dp)
+                                        )
                                 ) {
-                                    // RAM chip
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
-                                        modifier = Modifier
-                                            .widthIn(min = 95.dp)
-                                            .border(
-                                                1.dp,
-                                                if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
-                                                RoundedCornerShape(6.dp)
-                                            )
-                                    ) {
-                                        Text(
-                                            text = "${variant.ram}GB RAM",
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    // Storage chip
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
-                                        modifier = Modifier
-                                            .widthIn(min = 140.dp)
-                                            .border(
-                                                1.dp,
-                                                if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
-                                                RoundedCornerShape(6.dp)
-                                            )
-                                    ) {
-                                        Text(
-                                            text = "${variant.storage}GB Storage",
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
+                                    Text(
+                                        text = "${variant.ram}GB RAM",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
+                                        textAlign = TextAlign.Center
+                                    )
                                 }
 
-                                // Price - grayed out if not available
-                                Text(
-                                    text = "₱${String.format("%,.2f", variant.retailPrice)}",
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isAvailableInSelectedColor) Color(0xFFDB2E2E) else Color(0xFFCCCCCC),
-                                    modifier = Modifier.padding(end = 72.dp)
-                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Storage chip
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
+                                    modifier = Modifier
+                                        .widthIn(min = 140.dp)
+                                        .border(
+                                            1.dp,
+                                            if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                ) {
+                                    Text(
+                                        text = "${variant.storage}GB Storage",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
                             }
+
+                            // Price - grayed out if not available
+                            Text(
+                                text = "₱${String.format("%,.2f", variant.retailPrice)}",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAvailableInSelectedColor) Color(0xFFDB2E2E) else Color(0xFFCCCCCC),
+                                modifier = Modifier.padding(end = 72.dp)
+                            )
                         }
                     }
                 }
@@ -718,7 +741,8 @@ fun DetailSpecRowMultiLine(
     label: String,
     value: String,
     isSvg: Boolean = true,
-    iconSize: Int = 42
+    iconSize: Int = 42,
+    iconOffsetX: Int = 0
 ) {
     val context = LocalContext.current
 
@@ -735,7 +759,9 @@ fun DetailSpecRowMultiLine(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(iconSize.dp)
+                modifier = Modifier
+                    .size(iconSize.dp)
+                    .offset(x = iconOffsetX.dp)
             )
         } else {
             // For PNG icons in raw folder
@@ -745,7 +771,9 @@ fun DetailSpecRowMultiLine(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(iconSize.dp)
+                modifier = Modifier
+                    .size(iconSize.dp)
+                    .offset(x = iconOffsetX.dp)
             )
         }
 

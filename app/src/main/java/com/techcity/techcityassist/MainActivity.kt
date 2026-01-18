@@ -414,8 +414,9 @@ fun matchesManufacturerFilter(phone: Phone, selectedManufacturer: String): Boole
 /**
  * Navigate to Phone Detail Activity
  */
-fun navigateToPhoneDetail(context: android.content.Context, phone: Phone) {
+fun navigateToPhoneDetail(context: android.content.Context, phone: Phone, phoneIndex: Int = 0) {
     val intent = Intent(context, PhoneDetailActivity::class.java).apply {
+        putExtra(PhoneDetailActivity.EXTRA_PHONE_INDEX, phoneIndex)
         putExtra(PhoneDetailActivity.EXTRA_PHONE_DOC_ID, phone.phoneDocId)
         putExtra(PhoneDetailActivity.EXTRA_MANUFACTURER, phone.manufacturer)
         putExtra(PhoneDetailActivity.EXTRA_MODEL, phone.model)
@@ -514,6 +515,12 @@ fun PhoneListScreen(
             variants.firstOrNull()?.retailPrice ?: Double.MAX_VALUE
         }
         .flatten()  // Flatten back to a single list
+
+    // Update PhoneListHolder whenever filteredPhones or phoneImagesMap changes
+    LaunchedEffect(filteredPhones, phoneImagesMap) {
+        PhoneListHolder.filteredPhones = filteredPhones
+        PhoneListHolder.phoneImagesMap = phoneImagesMap
+    }
 
     LaunchedEffect(Unit) {
         val db = FirebaseFirestore.getInstance()
@@ -844,8 +851,9 @@ fun PhoneListScreen(
                     phoneImages = phoneImagesMap[phone.phoneDocId],
                     imageLoader = imageLoader,
                     onClick = {
-                        // Navigate to detail activity
-                        navigateToPhoneDetail(context, phone)
+                        // Navigate to detail activity with unique model index
+                        val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
+                        navigateToPhoneDetail(context, phone, uniqueIndex)
                     },
                     onLongClick = {
                         // Show doc IDs dialog
