@@ -300,7 +300,7 @@ fun PhoneDetailScreen(
                     // Phone image - large, image scaled to crop whitespace
                     Box(
                         modifier = Modifier
-                            .height(380.dp)  // CHANGED: From fillMaxHeight(0.70f) to fixed height
+                            .height(418.dp)  // Increased by ~10%
                             .fillMaxWidth(0.85f)
                             .clip(RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
@@ -385,7 +385,7 @@ fun PhoneDetailScreen(
                 Column(
                     modifier = Modifier
                         .weight(1.1f)
-                        .height(440.dp)  // Matches image height + color name + color swatches
+                        .height(478.dp)  // Matches image height (418) + color name + color swatches (~60)
                         .offset(x = (-10).dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -516,14 +516,17 @@ fun PhoneDetailScreen(
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = Color.White,
-                                    modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                    modifier = Modifier
+                                        .widthIn(min = 95.dp)
+                                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
                                 ) {
                                     Text(
                                         text = "${variant.ram}GB RAM",
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF333333)
+                                        color = Color(0xFF333333),
+                                        textAlign = TextAlign.Center
                                     )
                                 }
 
@@ -533,14 +536,17 @@ fun PhoneDetailScreen(
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = Color.White,
-                                    modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                    modifier = Modifier
+                                        .widthIn(min = 140.dp)
+                                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
                                 ) {
                                     Text(
                                         text = "${variant.storage}GB Storage",
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF333333)
+                                        color = Color(0xFF333333),
+                                        textAlign = TextAlign.Center
                                     )
                                 }
                             }
@@ -644,7 +650,7 @@ fun DetailSpecRowMultiLine(
             )
         }
 
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(14.dp))
 
         Column {
             Text(
@@ -654,6 +660,7 @@ fun DetailSpecRowMultiLine(
                 color = Color(0xFF888888),
                 lineHeight = 16.sp
             )
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = value,
                 fontSize = 15.sp,
