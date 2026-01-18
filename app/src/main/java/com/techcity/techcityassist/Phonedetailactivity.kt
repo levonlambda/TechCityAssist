@@ -389,17 +389,18 @@ fun PhoneDetailScreen(
                         .offset(x = (-10).dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Display size
+                    // 1. Display size
                     if (phone.displaySize.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.screen_size_icon,
                             label = "Display Size",
                             value = "${phone.displaySize} inches",
-                            isSvg = false
+                            isSvg = false,
+                            iconSize = 50
                         )
                     }
 
-                    // Resolution
+                    // 2. Resolution
                     if (phone.resolution.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.resolution_icon,
@@ -409,7 +410,7 @@ fun PhoneDetailScreen(
                         )
                     }
 
-                    // Refresh rate
+                    // 3. Refresh rate
                     if (phone.refreshRate > 0) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.refresh_rate_icon,
@@ -419,47 +420,7 @@ fun PhoneDetailScreen(
                         )
                     }
 
-                    // Chipset
-                    if (phone.chipset.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.chipset_icon,
-                            label = "Chipset",
-                            value = phone.chipset,
-                            isSvg = false
-                        )
-                    }
-
-                    // Battery
-                    if (phone.batteryCapacity > 0) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.battery_icon,
-                            label = "Battery",
-                            value = "${formatter.format(phone.batteryCapacity)} mAh",
-                            isSvg = false
-                        )
-                    }
-
-                    // Charging
-                    if (phone.wiredCharging > 0) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.charging_icon,
-                            label = "Charging",
-                            value = "${phone.wiredCharging}W fast charging",
-                            isSvg = false
-                        )
-                    }
-
-                    // Rear Camera
-                    if (phone.rearCamera.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.rear_camera_icon,
-                            label = "Rear Camera",
-                            value = phone.rearCamera,
-                            isSvg = false
-                        )
-                    }
-
-                    // Front Camera
+                    // 4. Front Camera
                     if (phone.frontCamera.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.camera_icon,
@@ -469,22 +430,62 @@ fun PhoneDetailScreen(
                         )
                     }
 
-                    // Network
-                    if (phone.network.isNotEmpty()) {
+                    // 5. Rear Camera
+                    if (phone.rearCamera.isNotEmpty()) {
                         DetailSpecRowMultiLine(
-                            iconRes = R.raw.network_icon,
-                            label = "Network",
-                            value = phone.network,
+                            iconRes = R.raw.rear_camera_icon,
+                            label = "Rear Camera",
+                            value = phone.rearCamera,
                             isSvg = false
                         )
                     }
 
-                    // OS
+                    // 6. Chipset
+                    if (phone.chipset.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.chipset_icon,
+                            label = "Chipset",
+                            value = phone.chipset,
+                            isSvg = false
+                        )
+                    }
+
+                    // 7. Battery
+                    if (phone.batteryCapacity > 0) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.battery_icon,
+                            label = "Battery",
+                            value = "${formatter.format(phone.batteryCapacity)} mAh",
+                            isSvg = false
+                        )
+                    }
+
+                    // 8. Charging
+                    if (phone.wiredCharging > 0) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.charging_icon,
+                            label = "Charging",
+                            value = "${phone.wiredCharging}W fast charging",
+                            isSvg = false
+                        )
+                    }
+
+                    // 9. OS
                     if (phone.os.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.os_icon,
                             label = "OS",
                             value = phone.os,
+                            isSvg = false
+                        )
+                    }
+
+                    // 10. Network
+                    if (phone.network.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.network_icon,
+                            label = "Network",
+                            value = phone.network,
                             isSvg = false
                         )
                     }
@@ -497,68 +498,77 @@ fun PhoneDetailScreen(
             if (isLoadingVariants) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp))
             } else {
+                // Centered container - variants grow from center
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),  // Take remaining space
+                    verticalArrangement = Arrangement.Center,  // Center variants vertically
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    variants.forEach { variant ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Chips container - takes remaining space after price is measured
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        variants.forEach { variant ->
                             Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 32.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // RAM chip
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.White,
+                                // Chips container - takes remaining space after price is measured
+                                Row(
                                     modifier = Modifier
-                                        .widthIn(min = 95.dp)
-                                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                        .weight(1f)
+                                        .padding(start = 32.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "${variant.ram}GB RAM",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF333333),
-                                        textAlign = TextAlign.Center
-                                    )
+                                    // RAM chip
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .widthIn(min = 95.dp)
+                                            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                    ) {
+                                        Text(
+                                            text = "${variant.ram}GB RAM",
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF333333),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Storage chip
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .widthIn(min = 140.dp)
+                                            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                    ) {
+                                        Text(
+                                            text = "${variant.storage}GB Storage",
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF333333),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
 
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                // Storage chip
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.White,
-                                    modifier = Modifier
-                                        .widthIn(min = 140.dp)
-                                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
-                                ) {
-                                    Text(
-                                        text = "${variant.storage}GB Storage",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF333333),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
+                                // Price - measures first, never clipped
+                                Text(
+                                    text = "₱${String.format("%,.2f", variant.retailPrice)}",
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFDB2E2E),
+                                    modifier = Modifier.padding(end = 72.dp)
+                                )
                             }
-
-                            // Price - measures first, never clipped
-                            Text(
-                                text = "₱${String.format("%,.2f", variant.retailPrice)}",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFDB2E2E),
-                                modifier = Modifier.padding(end = 32.dp)
-                            )
                         }
                     }
                 }
@@ -619,7 +629,8 @@ fun DetailSpecRowMultiLine(
     iconRes: Int,
     label: String,
     value: String,
-    isSvg: Boolean = true
+    isSvg: Boolean = true,
+    iconSize: Int = 42
 ) {
     val context = LocalContext.current
 
@@ -636,7 +647,7 @@ fun DetailSpecRowMultiLine(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(iconSize.dp)
             )
         } else {
             // For PNG icons in raw folder
@@ -646,7 +657,7 @@ fun DetailSpecRowMultiLine(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(iconSize.dp)
             )
         }
 
