@@ -356,9 +356,9 @@ fun PhoneDetailContent(
                     return if (colorCount > 0) page % colorCount else 0
                 }
 
-                // Sync selectedColorIndex when user swipes
-                LaunchedEffect(pagerState.currentPage) {
-                    val newIndex = getActualColorIndex(pagerState.currentPage)
+                // Sync selectedColorIndex when user swipes (use settledPage to avoid race condition during animation)
+                LaunchedEffect(pagerState.settledPage) {
+                    val newIndex = getActualColorIndex(pagerState.settledPage)
                     if (newIndex != selectedColorIndex) {
                         selectedColorIndex = newIndex
                     }
@@ -366,10 +366,10 @@ fun PhoneDetailContent(
 
                 // Sync pager when user clicks on color swatch
                 LaunchedEffect(selectedColorIndex) {
-                    val currentPagerIndex = getActualColorIndex(pagerState.currentPage)
+                    val currentPagerIndex = getActualColorIndex(pagerState.settledPage)
                     if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
                         // Calculate the closest page to scroll to
-                        val currentPage = pagerState.currentPage
+                        val currentPage = pagerState.settledPage
                         val currentActual = currentPage % colorCount
                         val diff = selectedColorIndex - currentActual
                         val targetPage = currentPage + diff
@@ -496,7 +496,8 @@ fun PhoneDetailContent(
                         value = "${phone.displaySize} inches",
                         isSvg = false,
                         iconSize = 50,
-                        iconOffsetX = -4
+                        iconOffsetX = -4,
+                        textStartOffset = -8
                     )
                 }
 
@@ -614,26 +615,38 @@ fun PhoneDetailContent(
                         val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
                         val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
 
+                        // Get the color for the bar
+                        val barColor = if (isAvailableInSelectedColor) {
+                            val hexColor = phoneImages?.getHexColorForColor(currentColor) ?: ""
+                            if (hexColor.isNotEmpty()) {
+                                parseHexColorDetail(hexColor)
+                            } else {
+                                getColorFromNameDetail(currentColor)
+                            }
+                        } else {
+                            Color.Transparent
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Chips container - takes remaining space after price is measured
+                            // Chips container
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(start = 32.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // RAM chip
+                                // RAM chip - always active looking
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
+                                    color = Color.White,
                                     modifier = Modifier
                                         .widthIn(min = 95.dp)
                                         .border(
                                             1.dp,
-                                            if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
+                                            Color(0xFFE0E0E0),
                                             RoundedCornerShape(6.dp)
                                         )
                                 ) {
@@ -642,22 +655,22 @@ fun PhoneDetailContent(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
+                                        color = Color(0xFF333333),
                                         textAlign = TextAlign.Center
                                     )
                                 }
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                // Storage chip
+                                // Storage chip - always active looking
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
+                                    color = Color.White,
                                     modifier = Modifier
                                         .widthIn(min = 140.dp)
                                         .border(
                                             1.dp,
-                                            if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
+                                            Color(0xFFE0E0E0),
                                             RoundedCornerShape(6.dp)
                                         )
                                 ) {
@@ -666,18 +679,35 @@ fun PhoneDetailContent(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
+                                        color = Color(0xFF333333),
                                         textAlign = TextAlign.Center
                                     )
                                 }
+
+                                // Color availability bar - right after Storage chip
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .width(6.dp)
+                                        .height(32.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(barColor)
+                                        .then(
+                                            if (isAvailableInSelectedColor) {
+                                                Modifier.border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(3.dp))
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
+                                )
                             }
 
-                            // Price - grayed out if not available
+                            // Price - always active looking
                             Text(
                                 text = "₱${String.format("%,.2f", variant.retailPrice)}",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isAvailableInSelectedColor) Color(0xFFDB2E2E) else Color(0xFFCCCCCC),
+                                color = Color(0xFFDB2E2E),
                                 modifier = Modifier.padding(end = 72.dp)
                             )
                         }
@@ -742,7 +772,8 @@ fun DetailSpecRowMultiLine(
     value: String,
     isSvg: Boolean = true,
     iconSize: Int = 42,
-    iconOffsetX: Int = 0
+    iconOffsetX: Int = 0,
+    textStartOffset: Int = 0
 ) {
     val context = LocalContext.current
 
@@ -777,7 +808,7 @@ fun DetailSpecRowMultiLine(
             )
         }
 
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width((14 + textStartOffset).dp))
 
         Column {
             Text(
@@ -925,6 +956,31 @@ private fun getColorFromNameDetail(colorName: String): Color {
         "titanium blue" -> Color(0xFF4A90D9)
         "titanium black" -> Color(0xFF333333)
         else -> Color.Gray
+    }
+}
+
+// Utility function to parse hex color string (private to avoid conflict)
+private fun parseHexColorDetail(hex: String): Color {
+    return try {
+        val cleanHex = hex.removePrefix("#")
+        val colorLong = cleanHex.toLong(16)
+
+        if (cleanHex.length == 6) {
+            Color(
+                red = ((colorLong shr 16) and 0xFF) / 255f,
+                green = ((colorLong shr 8) and 0xFF) / 255f,
+                blue = (colorLong and 0xFF) / 255f
+            )
+        } else if (cleanHex.length == 3) {
+            val r = ((colorLong shr 8) and 0xF) * 17
+            val g = ((colorLong shr 4) and 0xF) * 17
+            val b = (colorLong and 0xF) * 17
+            Color(r / 255f, g / 255f, b / 255f)
+        } else {
+            Color.Gray
+        }
+    } catch (e: Exception) {
+        Color.Gray
     }
 }
 
