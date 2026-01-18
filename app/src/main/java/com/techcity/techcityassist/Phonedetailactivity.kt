@@ -5,11 +5,14 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
@@ -122,7 +125,7 @@ class PhoneDetailActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PhoneDetailScreen(
     phone: Phone,
@@ -297,7 +300,47 @@ fun PhoneDetailScreen(
                     horizontalAlignment = Alignment.Start,
                     verticalArrangement = Arrangement.Top
                 ) {
-                    // Phone image - large, image scaled to crop whitespace
+                    // Pager state for swiping between colors
+                    val colorCount = allAvailableColors.size
+                    val infinitePageCount = if (colorCount > 1) 10000 else 1
+                    val startPage = if (colorCount > 1) {
+                        (infinitePageCount / 2) - ((infinitePageCount / 2) % colorCount)
+                    } else {
+                        0
+                    }
+
+                    val pagerState = rememberPagerState(
+                        initialPage = startPage,
+                        pageCount = { infinitePageCount }
+                    )
+
+                    // Get actual color index from page (for infinite scroll)
+                    fun getActualColorIndex(page: Int): Int {
+                        return if (colorCount > 0) page % colorCount else 0
+                    }
+
+                    // Sync selectedColorIndex when user swipes
+                    LaunchedEffect(pagerState.currentPage) {
+                        val newIndex = getActualColorIndex(pagerState.currentPage)
+                        if (newIndex != selectedColorIndex) {
+                            selectedColorIndex = newIndex
+                        }
+                    }
+
+                    // Sync pager when user clicks on color swatch
+                    LaunchedEffect(selectedColorIndex) {
+                        val currentPagerIndex = getActualColorIndex(pagerState.currentPage)
+                        if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
+                            // Calculate the closest page to scroll to
+                            val currentPage = pagerState.currentPage
+                            val currentActual = currentPage % colorCount
+                            val diff = selectedColorIndex - currentActual
+                            val targetPage = currentPage + diff
+                            pagerState.animateScrollToPage(targetPage)
+                        }
+                    }
+
+                    // Phone image with swipe - large, image scaled to crop whitespace
                     Box(
                         modifier = Modifier
                             .height(418.dp)  // Increased by ~10%
@@ -307,28 +350,47 @@ fun PhoneDetailScreen(
                     ) {
                         if (isLoadingImages) {
                             CircularProgressIndicator()
-                        } else if (imageUrl != null) {
-                            // Check for cached image first
-                            val isHighRes = colorImages?.lowRes.isNullOrEmpty() == true
-                            val cachedPath = ImageCacheManager.getLocalImageUri(
-                                context, phone.phoneDocId, currentColor, isHighRes
-                            )
+                        } else if (allAvailableColors.isNotEmpty()) {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize(),
+                                beyondViewportPageCount = 1
+                            ) { page ->
+                                val actualIndex = getActualColorIndex(page)
+                                val colorName = allAvailableColors.getOrNull(actualIndex) ?: ""
+                                val colorImagesForPage = phoneImages?.getImagesForColor(colorName)
+                                val imageUrlForPage = colorImagesForPage?.highRes?.ifEmpty { colorImagesForPage.lowRes } ?: colorImagesForPage?.lowRes
 
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(cachedPath ?: imageUrl)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build(),
-                                contentDescription = "$displayName in $currentColor",
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .graphicsLayer {
-                                        scaleX = 1.15f  // Scale up to crop whitespace edges
-                                        scaleY = 1.15f
-                                    },
-                                contentScale = ContentScale.FillHeight
-                            )
+                                if (imageUrlForPage != null) {
+                                    // Check for cached image first
+                                    val isHighRes = colorImagesForPage?.lowRes.isNullOrEmpty() == true
+                                    val cachedPath = ImageCacheManager.getLocalImageUri(
+                                        context, phone.phoneDocId, colorName, isHighRes
+                                    )
+
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(cachedPath ?: imageUrlForPage)
+                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                            .build(),
+                                        contentDescription = "$displayName in $colorName",
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .graphicsLayer {
+                                                scaleX = 1.15f  // Scale up to crop whitespace edges
+                                                scaleY = 1.15f
+                                            },
+                                        contentScale = ContentScale.FillHeight
+                                    )
+                                } else {
+                                    Text(
+                                        text = "No Image Available",
+                                        color = Color.Gray,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
                         } else {
                             Text(
                                 text = "No Image Available",
@@ -712,8 +774,8 @@ fun DetailColorDot(
         modifier = Modifier
             .size(if (isSelected) 28.dp else 22.dp)
             .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) Color(0xFF6200EE) else Color(0xFFDDDDDD),
+                width = 1.dp,
+                color = Color(0xFFDDDDDD),
                 shape = CircleShape
             )
             .clickable { onClick() },
