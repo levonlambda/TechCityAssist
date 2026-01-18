@@ -146,6 +146,9 @@ fun PhoneDetailScreen(
     // State for all unique colors across all variants
     var allAvailableColors by remember { mutableStateOf<List<String>>(phone.colors) }
 
+    // State for tracking which colors are available for each variant
+    var variantColorsMap by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+
     // Fetch phone images
     LaunchedEffect(phone.phoneDocId) {
         if (phone.phoneDocId.isNotEmpty()) {
@@ -177,6 +180,7 @@ fun PhoneDetailScreen(
                 // Group by RAM and Storage to get unique variants
                 val variantMap = mutableMapOf<String, PhoneVariant>()
                 val allColors = mutableSetOf<String>()
+                val variantColorsTemp = mutableMapOf<String, MutableSet<String>>()
 
                 for (doc in inventoryResult.documents) {
                     val ram = doc.getString("ram") ?: ""
@@ -191,6 +195,12 @@ fun PhoneDetailScreen(
                     }
 
                     val key = "$ram|$storage"
+
+                    // Track colors for each variant
+                    if (color.isNotEmpty()) {
+                        variantColorsTemp.getOrPut(key) { mutableSetOf() }.add(color)
+                    }
+
                     if (!variantMap.containsKey(key)) {
                         variantMap[key] = PhoneVariant(
                             ram = ram,
@@ -206,6 +216,9 @@ fun PhoneDetailScreen(
 
                 // Update allAvailableColors
                 allAvailableColors = allColors.toList().sorted()
+
+                // Update variantColorsMap
+                variantColorsMap = variantColorsTemp.mapValues { it.value.toList().sorted() }
             } catch (e: Exception) {
                 Log.e("PhoneDetail", "Error fetching variants", e)
                 // Fall back to the single variant passed in
@@ -218,6 +231,7 @@ fun PhoneDetailScreen(
                     )
                 )
                 allAvailableColors = phone.colors
+                variantColorsMap = mapOf("${phone.ram}|${phone.storage}" to phone.colors)
             }
         }
         isLoadingVariants = false
@@ -572,6 +586,10 @@ fun PhoneDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         variants.forEach { variant ->
+                            val variantKey = "${variant.ram}|${variant.storage}"
+                            val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
+                            val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -586,17 +604,21 @@ fun PhoneDetailScreen(
                                     // RAM chip
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = Color.White,
+                                        color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
                                         modifier = Modifier
                                             .widthIn(min = 95.dp)
-                                            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                            .border(
+                                                1.dp,
+                                                if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
+                                                RoundedCornerShape(6.dp)
+                                            )
                                     ) {
                                         Text(
                                             text = "${variant.ram}GB RAM",
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF333333),
+                                            color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
                                             textAlign = TextAlign.Center
                                         )
                                     }
@@ -606,28 +628,32 @@ fun PhoneDetailScreen(
                                     // Storage chip
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = Color.White,
+                                        color = if (isAvailableInSelectedColor) Color.White else Color(0xFFF5F5F5),
                                         modifier = Modifier
                                             .widthIn(min = 140.dp)
-                                            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                                            .border(
+                                                1.dp,
+                                                if (isAvailableInSelectedColor) Color(0xFFE0E0E0) else Color(0xFFEEEEEE),
+                                                RoundedCornerShape(6.dp)
+                                            )
                                     ) {
                                         Text(
                                             text = "${variant.storage}GB Storage",
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF333333),
+                                            color = if (isAvailableInSelectedColor) Color(0xFF333333) else Color(0xFFBBBBBB),
                                             textAlign = TextAlign.Center
                                         )
                                     }
                                 }
 
-                                // Price - measures first, never clipped
+                                // Price - grayed out if not available
                                 Text(
                                     text = "₱${String.format("%,.2f", variant.retailPrice)}",
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFDB2E2E),
+                                    color = if (isAvailableInSelectedColor) Color(0xFFDB2E2E) else Color(0xFFCCCCCC),
                                     modifier = Modifier.padding(end = 72.dp)
                                 )
                             }
