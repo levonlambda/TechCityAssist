@@ -29,5 +29,7 @@ data class Phone(
     val inventoryDocIds: List<String> = emptyList(),
     val phoneDocId: String = "",
     val variants: List<PhoneVariant> = emptyList(),
-    val deviceType: String = ""  // Phone, Tablet, Laptop
+    val deviceType: String = "",  // Phone, Tablet, Laptop
+    val gpu: String = "",
+    val cpu: String = ""
 )

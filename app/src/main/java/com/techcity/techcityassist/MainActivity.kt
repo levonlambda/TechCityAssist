@@ -95,6 +95,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 
 // ============================================
 // TEST MODE - Set to false for production
@@ -359,7 +362,9 @@ data class DeviceSpecs(
     val resolution: String = "",
     val refreshRate: Int = 0,
     val wiredCharging: Int = 0,
-    val deviceType: String = ""
+    val deviceType: String = "",
+    val gpu: String = "",
+    val cpu: String = ""
 )
 
 // Data class to hold color and image info for each color variant
@@ -543,7 +548,9 @@ fun PhoneListScreen(
                             resolution = phoneDoc.getString("resolution") ?: "",
                             refreshRate = phoneDoc.getLong("resolution_extra")?.toInt() ?: 0,
                             wiredCharging = phoneDoc.getLong("wiredCharging")?.toInt() ?: 0,
-                            deviceType = phoneDoc.getString("deviceType") ?: ""
+                            deviceType = phoneDoc.getString("deviceType") ?: "",
+                            gpu = phoneDoc.getString("gpu") ?: "",
+                            cpu = phoneDoc.getString("cpu") ?: ""
                         )
                     } else {
                         DeviceSpecs()
@@ -604,7 +611,9 @@ fun PhoneListScreen(
                                                     inventoryDocIds = variantItems.map { it["docId"] as String },
                                                     phoneDocId = specs.docId,
                                                     variants = emptyList(),
-                                                    deviceType = specs.deviceType
+                                                    deviceType = specs.deviceType,
+                                                    gpu = specs.gpu,
+                                                    cpu = specs.cpu
                                                 )
                                             }
                                             .sortedBy { it.retailPrice }
@@ -655,7 +664,9 @@ fun PhoneListScreen(
                             resolution = doc.getString("resolution") ?: "",
                             refreshRate = doc.getLong("resolution_extra")?.toInt() ?: 0,
                             wiredCharging = doc.getLong("wiredCharging")?.toInt() ?: 0,
-                            deviceType = doc.getString("deviceType") ?: ""
+                            deviceType = doc.getString("deviceType") ?: "",
+                            gpu = doc.getString("gpu") ?: "",
+                            cpu = doc.getString("cpu") ?: ""
                         )
                     }
 
@@ -723,7 +734,9 @@ fun PhoneListScreen(
                                         inventoryDocIds = inventoryDocIds,
                                         phoneDocId = specs.docId,
                                         variants = emptyList(),
-                                        deviceType = specs.deviceType
+                                        deviceType = specs.deviceType,
+                                        gpu = specs.gpu,
+                                        cpu = specs.cpu
                                     )
                                 }
                                 .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))
@@ -1294,9 +1307,10 @@ fun PhoneCard(
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                     }
-                    Text(
+                    AutoSizeText(
                         text = displayName,
-                        fontSize = 28.sp,
+                        maxFontSize = 28.sp,
+                        minFontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF1A1A1A),
                         modifier = Modifier.padding(top = 6.dp)
@@ -1305,32 +1319,69 @@ fun PhoneCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // First row: OS, Battery, Front Cam, Rear Cam
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = specRowStartPadding, end = 0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Rear Cam", value = if (useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, modifier = Modifier.weight(1f))
-                }
+                // Check if device is a laptop
+                val isLaptop = phone.deviceType.equals("laptop", ignoreCase = true)
 
-                Spacer(modifier = Modifier.height(12.dp))
+                if (isLaptop) {
+                    // LAPTOP LAYOUT - Checkerboard pattern
+                    // First row: OS, Display Size, Resolution (3 items)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = specRowStartPadding, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(32.dp)
+                    ) {
+                        LaptopSpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, modifier = Modifier.weight(1f))
+                        LaptopSpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, modifier = Modifier.weight(1f))
+                        LaptopSpecItem(label = "Resolution", value = phone.resolution.ifEmpty { "N/A" }, iconRes = R.raw.resolution_icon, modifier = Modifier.weight(1f))
+                    }
 
-                // Second row: Display Size, Refresh Rate, Charging, Network
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = specRowStartPadding, end = 0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Refresh Rate", value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A", iconRes = R.raw.refresh_rate_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Charging", value = if (phone.wiredCharging > 0) "${phone.wiredCharging}W" else "N/A", iconRes = R.raw.charging_icon, modifier = Modifier.weight(1f))
-                    SpecItem(label = "Network", value = phone.network.ifEmpty { "N/A" }, iconRes = R.raw.network_icon, modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Second row: CPU, GPU (2 items centered in checkerboard pattern)
+                    // GPU gets more width since GPU names tend to be longer
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = specRowStartPadding, end = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        // Minimal spacer
+                        Spacer(modifier = Modifier.weight(0.15f))
+                        LaptopSpecItemLarge(label = "CPU", value = phone.cpu.ifEmpty { "N/A" }, iconRes = R.raw.chipset_icon, modifier = Modifier.weight(0.9f))
+                        LaptopSpecItemLarge(label = "GPU", value = phone.gpu.ifEmpty { "N/A" }, iconRes = R.raw.gpu_icon, modifier = Modifier.weight(1.2f))
+                        // Minimal spacer to balance
+                        Spacer(modifier = Modifier.weight(0.15f))
+                    }
+                } else {
+                    // PHONE/TABLET LAYOUT - 4 specs per row
+                    // First row: OS, Battery, Front Cam, Rear Cam
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = specRowStartPadding, end = 0.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Rear Cam", value = if (useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, modifier = Modifier.weight(1f))
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Second row: Display Size, Refresh Rate, Charging, Network
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = specRowStartPadding, end = 0.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Refresh Rate", value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A", iconRes = R.raw.refresh_rate_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Charging", value = if (phone.wiredCharging > 0) "${phone.wiredCharging}W" else "N/A", iconRes = R.raw.charging_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Network", value = phone.network.ifEmpty { "N/A" }, iconRes = R.raw.network_icon, modifier = Modifier.weight(1f))
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -1652,6 +1703,176 @@ fun ColorDot(
 }
 
 /**
+ * Spec item specifically designed for laptops with longer values (CPU, GPU names)
+ * Uses auto-sizing text for the value to fit without clipping
+ */
+@Composable
+fun LaptopSpecItem(
+    label: String,
+    value: String,
+    iconRes: Int? = null,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    val imageRequest = remember(iconRes) {
+        iconRes?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .decoderFactory(SvgDecoder.Factory())
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .memoryCacheKey("spec_icon_$it")
+                .build()
+        }
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Icon and label row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (imageRequest != null) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+
+            Text(
+                text = label,
+                fontSize = 9.sp,
+                color = Color(0xFF888888),
+                maxLines = 1
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        // Auto-sizing value text
+        AutoSizeText(
+            text = value,
+            maxFontSize = 13.sp,
+            minFontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF333333),
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 1
+        )
+    }
+}
+
+/**
+ * Larger spec item for laptop CPU/GPU when there are only 2 items in the row
+ * Has more space so can use larger font
+ */
+@Composable
+fun LaptopSpecItemLarge(
+    label: String,
+    value: String,
+    iconRes: Int? = null,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    val imageRequest = remember(iconRes) {
+        iconRes?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .decoderFactory(SvgDecoder.Factory())
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .memoryCacheKey("spec_icon_$it")
+                .build()
+        }
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Icon and label row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (imageRequest != null) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                color = Color(0xFF888888),
+                maxLines = 1
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Auto-sizing value text - larger font range with smaller minimum to fit long GPU names
+        AutoSizeText(
+            text = value,
+            maxFontSize = 15.sp,
+            minFontSize = 7.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF333333),
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 1
+        )
+    }
+}
+
+/**
+ * Auto-sizing text that shrinks font size to fit on a single line
+ */
+@Composable
+fun AutoSizeText(
+    text: String,
+    modifier: Modifier = Modifier,
+    maxFontSize: TextUnit,
+    minFontSize: TextUnit = 12.sp,
+    fontWeight: FontWeight = FontWeight.Normal,
+    color: Color = Color.Black,
+    maxLines: Int = 1,
+    textAlign: TextAlign = TextAlign.Center
+) {
+    var fontSize by remember(text) { mutableStateOf(maxFontSize) }
+    var readyToDraw by remember(text) { mutableStateOf(false) }
+
+    Text(
+        text = text,
+        modifier = modifier.drawWithContent {
+            if (readyToDraw) drawContent()
+        },
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        color = color,
+        maxLines = maxLines,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
+        textAlign = textAlign,
+        onTextLayout = { textLayoutResult ->
+            if (textLayoutResult.didOverflowWidth && fontSize > minFontSize) {
+                // Reduce font size by 1sp and try again
+                fontSize = (fontSize.value - 1f).sp
+            } else {
+                readyToDraw = true
+            }
+        }
+    )
+}
+
+/**
  * Parse hex color string to Compose Color (renamed to avoid conflict with ImageManagementActivity)
  */
 private fun hexToColor(hex: String): Color {
@@ -1707,4 +1928,5 @@ fun formatModelName(model: String): String {
     return model
         .replace("Iphone", "iPhone", ignoreCase = true)
         .replace("Ipad", "iPad", ignoreCase = true)
+        .replace("(refurbished)", "*", ignoreCase = true)
 }

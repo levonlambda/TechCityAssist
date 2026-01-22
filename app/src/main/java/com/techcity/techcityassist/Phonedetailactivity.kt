@@ -31,6 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -312,9 +315,10 @@ fun PhoneDetailContent(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
-            Text(
+            AutoSizeTextDetail(
                 text = displayName,
-                fontSize = 42.sp,
+                maxFontSize = 42.sp,
+                minFontSize = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF1A1A1A)
             )
@@ -488,107 +492,177 @@ fun PhoneDetailContent(
                     .offset(x = (-10).dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // 1. Display size
-                if (phone.displaySize.isNotEmpty()) {
+                // Check if this is a laptop
+                val isLaptop = phone.deviceType.equals("laptop", ignoreCase = true)
+
+                if (isLaptop) {
+                    // LAPTOP SPECS: Display Size, Resolution, Refresh Rate, CPU, GPU, Battery, OS
+                    // Always show all specs for laptops, display N/A if empty
+
+                    // 1. Display size
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.screen_size_icon,
                         label = "Display Size",
-                        value = "${phone.displaySize} inches",
+                        value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} inches" else "N/A",
                         isSvg = false,
                         iconSize = 50,
                         iconOffsetX = -4,
                         textStartOffset = -8
                     )
-                }
 
-                // 2. Resolution
-                if (phone.resolution.isNotEmpty()) {
+                    // 2. Resolution
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.resolution_icon,
                         label = "Resolution",
-                        value = phone.resolution,
+                        value = phone.resolution.ifEmpty { "N/A" },
                         isSvg = false
                     )
-                }
 
-                // 3. Refresh rate
-                if (phone.refreshRate > 0) {
+                    // 3. Refresh rate
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.refresh_rate_icon,
                         label = "Refresh Rate",
-                        value = "${phone.refreshRate} Hz",
+                        value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A",
                         isSvg = false
                     )
-                }
 
-                // 4. Front Camera
-                if (phone.frontCamera.isNotEmpty()) {
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.camera_icon,
-                        label = "Front Camera",
-                        value = phone.frontCamera,
-                        isSvg = false
-                    )
-                }
-
-                // 5. Rear Camera
-                if (phone.rearCamera.isNotEmpty()) {
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.rear_camera_icon,
-                        label = "Rear Camera",
-                        value = phone.rearCamera,
-                        isSvg = false
-                    )
-                }
-
-                // 6. Chipset
-                if (phone.chipset.isNotEmpty()) {
+                    // 4. CPU
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.chipset_icon,
-                        label = "Chipset",
-                        value = phone.chipset,
+                        label = "CPU",
+                        value = phone.cpu.ifEmpty { "N/A" },
                         isSvg = false
                     )
-                }
 
-                // 7. Battery
-                if (phone.batteryCapacity > 0) {
+                    // 5. GPU
+                    DetailSpecRowMultiLine(
+                        iconRes = R.raw.gpu_icon,
+                        label = "GPU",
+                        value = phone.gpu.ifEmpty { "N/A" },
+                        isSvg = false
+                    )
+
+                    // 6. Battery
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.battery_icon,
                         label = "Battery",
-                        value = "${formatter.format(phone.batteryCapacity)} mAh",
+                        value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A",
                         isSvg = false
                     )
-                }
 
-                // 8. Charging
-                if (phone.wiredCharging > 0) {
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.charging_icon,
-                        label = "Charging",
-                        value = "${phone.wiredCharging}W fast charging",
-                        isSvg = false
-                    )
-                }
-
-                // 9. OS
-                if (phone.os.isNotEmpty()) {
+                    // 7. OS
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.os_icon,
                         label = "OS",
-                        value = phone.os,
+                        value = phone.os.ifEmpty { "N/A" },
                         isSvg = false
                     )
-                }
 
-                // 10. Network
-                if (phone.network.isNotEmpty()) {
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.network_icon,
-                        label = "Network",
-                        value = phone.network,
-                        isSvg = false
-                    )
+                } else {
+                    // PHONE/TABLET SPECS: Display Size, Resolution, Refresh Rate, Front Camera, Rear Camera, Chipset, Battery, Charging, OS, Network
+
+                    // 1. Display size
+                    if (phone.displaySize.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.screen_size_icon,
+                            label = "Display Size",
+                            value = "${phone.displaySize} inches",
+                            isSvg = false,
+                            iconSize = 50,
+                            iconOffsetX = -4,
+                            textStartOffset = -8
+                        )
+                    }
+
+                    // 2. Resolution
+                    if (phone.resolution.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.resolution_icon,
+                            label = "Resolution",
+                            value = phone.resolution,
+                            isSvg = false
+                        )
+                    }
+
+                    // 3. Refresh rate
+                    if (phone.refreshRate > 0) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.refresh_rate_icon,
+                            label = "Refresh Rate",
+                            value = "${phone.refreshRate} Hz",
+                            isSvg = false
+                        )
+                    }
+
+                    // 4. Front Camera
+                    if (phone.frontCamera.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.camera_icon,
+                            label = "Front Camera",
+                            value = phone.frontCamera,
+                            isSvg = false
+                        )
+                    }
+
+                    // 5. Rear Camera
+                    if (phone.rearCamera.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.rear_camera_icon,
+                            label = "Rear Camera",
+                            value = phone.rearCamera,
+                            isSvg = false
+                        )
+                    }
+
+                    // 6. Chipset
+                    if (phone.chipset.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.chipset_icon,
+                            label = "Chipset",
+                            value = phone.chipset,
+                            isSvg = false
+                        )
+                    }
+
+                    // 7. Battery
+                    if (phone.batteryCapacity > 0) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.battery_icon,
+                            label = "Battery",
+                            value = "${formatter.format(phone.batteryCapacity)} mAh",
+                            isSvg = false
+                        )
+                    }
+
+                    // 8. Charging
+                    if (phone.wiredCharging > 0) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.charging_icon,
+                            label = "Charging",
+                            value = "${phone.wiredCharging}W fast charging",
+                            isSvg = false
+                        )
+                    }
+
+                    // 9. OS
+                    if (phone.os.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.os_icon,
+                            label = "OS",
+                            value = phone.os,
+                            isSvg = false
+                        )
+                    }
+
+                    // 10. Network
+                    if (phone.network.isNotEmpty()) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.network_icon,
+                            label = "Network",
+                            value = phone.network,
+                            isSvg = false
+                        )
+                    }
                 }
             }
         }
@@ -869,6 +943,44 @@ fun DetailColorDot(
     ) {}
 }
 
+/**
+ * Auto-sizing text that shrinks font size to fit on a single line (for PhoneDetailActivity)
+ */
+@Composable
+fun AutoSizeTextDetail(
+    text: String,
+    modifier: Modifier = Modifier,
+    maxFontSize: TextUnit,
+    minFontSize: TextUnit = 12.sp,
+    fontWeight: FontWeight = FontWeight.Normal,
+    color: Color = Color.Black,
+    maxLines: Int = 1
+) {
+    var fontSize by remember(text) { mutableStateOf(maxFontSize) }
+    var readyToDraw by remember(text) { mutableStateOf(false) }
+
+    Text(
+        text = text,
+        modifier = modifier.drawWithContent {
+            if (readyToDraw) drawContent()
+        },
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        color = color,
+        maxLines = maxLines,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
+        onTextLayout = { textLayoutResult ->
+            if (textLayoutResult.didOverflowWidth && fontSize > minFontSize) {
+                // Reduce font size by 1sp and try again
+                fontSize = (fontSize.value - 1f).sp
+            } else {
+                readyToDraw = true
+            }
+        }
+    )
+}
+
 @Composable
 fun StoragePriceTable(
     ram: String,
@@ -989,6 +1101,7 @@ private fun formatModelNameDetail(model: String): String {
     return model
         .replace("Iphone", "iPhone", ignoreCase = true)
         .replace("Ipad", "iPad", ignoreCase = true)
+        .replace("(refurbished)", "*", ignoreCase = true)
 }
 
 // Parse phone images document from Firestore (private to avoid conflict with MainActivity)
