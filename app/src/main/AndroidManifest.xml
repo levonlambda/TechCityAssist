@@ -29,6 +29,13 @@
             android:label="Image Management"
             android:theme="@style/Theme.TechCityAssist" />
 
+        <!-- Phone List Activity -->
+        <activity
+            android:name=".PhoneListActivity"
+            android:exported="false"
+            android:label="Device List"
+            android:theme="@style/Theme.TechCityAssist" />
+
         <!-- Phone Detail Activity -->
         <activity
             android:name=".PhoneDetailActivity"
