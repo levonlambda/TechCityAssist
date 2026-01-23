@@ -17,8 +17,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -87,7 +85,7 @@ class PhoneDetailActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhoneDetailScreen(
     initialIndex: Int,
@@ -99,29 +97,13 @@ fun PhoneDetailScreen(
 
     // Handle empty list case
     if (phones.isEmpty()) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { },
-                    navigationIcon = {
-                        IconButton(onClick = onBackPress) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.White
-                    )
-                )
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No phones available", color = Color.Gray)
-            }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("No phones available", color = Color.Gray)
         }
         return
     }
@@ -132,36 +114,20 @@ fun PhoneDetailScreen(
         pageCount = { phones.size }
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onBackPress) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White
-                )
-            )
-        }
-    ) { innerPadding ->
-        HorizontalPager(
-            state = phonePagerState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            beyondViewportPageCount = 1
-        ) { page ->
-            val phone = phones[page]
-            val initialPhoneImages = phoneImagesMapHolder[phone.phoneDocId]
+    HorizontalPager(
+        state = phonePagerState,
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
+        beyondViewportPageCount = 1
+    ) { page ->
+        val phone = phones[page]
+        val initialPhoneImages = phoneImagesMapHolder[phone.phoneDocId]
 
-            PhoneDetailContent(
-                phone = phone,
-                initialPhoneImages = initialPhoneImages
-            )
-        }
+        PhoneDetailContent(
+            phone = phone,
+            initialPhoneImages = initialPhoneImages
+        )
     }
 }
 
@@ -299,6 +265,24 @@ fun PhoneDetailContent(
             .background(Color.White)
             .padding(horizontal = 24.dp)
     ) {
+        // TechCity logo at top center
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 50.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.tc_logo_flat_black),
+                contentDescription = "TechCity Logo",
+                modifier = Modifier.height(40.dp),
+                contentScale = ContentScale.FillHeight
+            )
+        }
+
+        // Spacer between logo and model name
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Model name centered at top - large and bold like reference
         Row(
             modifier = Modifier
@@ -325,7 +309,7 @@ fun PhoneDetailContent(
         }
 
         // Added spacer between model name and image
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         // Main content - Phone image and specs
         Row(
@@ -668,7 +652,7 @@ fun PhoneDetailContent(
         }
 
         // RAM/Storage/Price variants - FULL WIDTH, below main content
-        Spacer(modifier = Modifier.height(45.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         if (isLoadingVariants) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
