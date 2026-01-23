@@ -273,7 +273,7 @@ fun PhoneDetailContent(
             horizontalArrangement = Arrangement.Center
         ) {
             Image(
-                painter = painterResource(id = R.drawable.tc_logo_flat_black),
+                painter = painterResource(id = R.drawable.tc_logo_flat_colored),
                 contentDescription = "TechCity Logo",
                 modifier = Modifier.height(40.dp),
                 contentScale = ContentScale.FillHeight
