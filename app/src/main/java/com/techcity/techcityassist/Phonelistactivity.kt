@@ -430,6 +430,9 @@ fun PhoneListScreen(
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
+    // Track if we used cached data
+    var usedCache by remember { mutableStateOf(false) }
+
     // State for showing doc IDs dialog (on long press)
     var selectedPhoneForDocIds by remember { mutableStateOf<Phone?>(null) }
 
@@ -522,7 +525,26 @@ fun PhoneListScreen(
         PhoneListHolder.phoneImagesMap = phoneImagesMap
     }
 
+    // ============================================
+    // DATA LOADING - CHECK CACHE FIRST
+    // ============================================
     LaunchedEffect(Unit) {
+        // CHECK IF WE HAVE CACHED DATA
+        if (PhoneListHolder.isSynced && PhoneListHolder.allDevices.isNotEmpty()) {
+            Log.d("PhoneList", "Using cached data (${PhoneListHolder.allDevices.size} devices)")
+            usedCache = true
+
+            // Use cached data - instant!
+            phones = PhoneListHolder.allDevices
+            phoneImagesMap = PhoneListHolder.allPhoneImages
+            isLoading = false
+            return@LaunchedEffect
+        }
+
+        // NO CACHED DATA - Fetch from Firebase (original behavior)
+        Log.d("PhoneList", "No cached data, fetching from Firebase...")
+        usedCache = false
+
         val db = FirebaseFirestore.getInstance()
 
         if (TEST_MODE) {
@@ -804,6 +826,15 @@ fun PhoneListScreen(
                             fontSize = 12.sp,
                             color = Color.Gray
                         )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(text = "Data Source:", fontWeight = FontWeight.Medium)
+                        Text(
+                            text = if (usedCache) "Cached (fast)" else "Firebase (live)",
+                            fontSize = 12.sp,
+                            color = if (usedCache) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                        )
                     }
                 }
             },
@@ -822,7 +853,24 @@ fun PhoneListScreen(
                 .background(Color(0xFFFCF9F5)),  // Warm off-white background
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator()
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Loading ${deviceType}s...",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+                if (!PhoneListHolder.isSynced) {
+                    Text(
+                        text = "Tip: Use SYNC on home screen for faster loading",
+                        fontSize = 12.sp,
+                        color = Color(0xFF999999)
+                    )
+                }
+            }
         }
     } else if (filteredPhones.isEmpty()) {
         Box(
@@ -1068,7 +1116,7 @@ fun PhoneCard(
                         imageUrl = colorData.remoteUrl,
                         phoneDocId = phone.phoneDocId,
                         colorName = colorData.colorName,
-                        isHighRes = isHighRes
+                        isHighRes = isHighRes ?: false
                     )
 
                     // Update the state with the cached path
