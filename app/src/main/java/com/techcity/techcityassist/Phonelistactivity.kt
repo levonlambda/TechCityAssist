@@ -1,7 +1,9 @@
 package com.techcity.techcityassist
 
 import android.content.Intent
+import androidx.compose.ui.layout.SubcomposeLayout
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.ImageLoader
 import coil.imageLoader
@@ -10,6 +12,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.ColorFilter
 import android.os.Bundle
 import android.util.Log
 import androidx.compose.ui.text.style.TextAlign
@@ -20,12 +23,14 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +41,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -51,6 +57,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,6 +83,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -131,9 +140,13 @@ class PhoneListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Get device type from intent
+        val deviceType = intent.getStringExtra("DEVICE_TYPE") ?: "phone"
+
         setContent {
             TechCityAssistTheme {
-                MainScreen()
+                MainScreen(deviceType = deviceType)
             }
         }
     }
@@ -149,7 +162,7 @@ data class DisplayFilters(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(deviceType: String = "phone") {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
 
@@ -158,6 +171,9 @@ fun MainScreen() {
 
     // Manufacturer filter state
     var selectedManufacturer by remember { mutableStateOf("All") }
+
+    // Dynamic manufacturer list based on device type (will be populated from data)
+    var manufacturerFilters by remember { mutableStateOf(listOf("All")) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -171,7 +187,7 @@ fun MainScreen() {
                             .padding(end = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        MANUFACTURER_FILTERS.forEach { manufacturer ->
+                        manufacturerFilters.forEach { manufacturer ->
                             FilterChip(
                                 selected = selectedManufacturer == manufacturer,
                                 onClick = { selectedManufacturer = manufacturer },
@@ -217,100 +233,61 @@ fun MainScreen() {
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
-                        // Filter Header
-                        Text(
-                            text = "Display Filters",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = Color(0xFF6200EE),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
+                        // Only show phone filters when viewing phones
+                        if (deviceType == "phone") {
+                            // Filter Header
+                            Text(
+                                text = "Display Filters",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color(0xFF6200EE),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
 
-                        // Phones (Brand New) checkbox
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = filters.showPhonesBrandNew,
-                                        onCheckedChange = null,  // Let DropdownMenuItem handle clicks
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = Color(0xFF6200EE)
+                            // Phones (Brand New) checkbox
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = filters.showPhonesBrandNew,
+                                            onCheckedChange = null,  // Let DropdownMenuItem handle clicks
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = Color(0xFF6200EE)
+                                            )
                                         )
-                                    )
-                                    Text("Phones (Brand New)")
+                                        Text("Phones (Brand New)")
+                                    }
+                                },
+                                onClick = {
+                                    filters = filters.copy(showPhonesBrandNew = !filters.showPhonesBrandNew)
                                 }
-                            },
-                            onClick = {
-                                filters = filters.copy(showPhonesBrandNew = !filters.showPhonesBrandNew)
-                            }
-                        )
+                            )
 
-                        // Phones (Refurbished) checkbox
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = filters.showPhonesRefurbished,
-                                        onCheckedChange = null,
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = Color(0xFF6200EE)
+                            // Phones (Refurbished) checkbox
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = filters.showPhonesRefurbished,
+                                            onCheckedChange = null,
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = Color(0xFF6200EE)
+                                            )
                                         )
-                                    )
-                                    Text("Phones (Refurbished)")
+                                        Text("Phones (Refurbished)")
+                                    }
+                                },
+                                onClick = {
+                                    filters = filters.copy(showPhonesRefurbished = !filters.showPhonesRefurbished)
                                 }
-                            },
-                            onClick = {
-                                filters = filters.copy(showPhonesRefurbished = !filters.showPhonesRefurbished)
-                            }
-                        )
+                            )
 
-                        // Tablets checkbox
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = filters.showTablets,
-                                        onCheckedChange = null,
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = Color(0xFF6200EE)
-                                        )
-                                    )
-                                    Text("Tablets")
-                                }
-                            },
-                            onClick = {
-                                filters = filters.copy(showTablets = !filters.showTablets)
-                            }
-                        )
-
-                        // Laptops checkbox
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = filters.showLaptops,
-                                        onCheckedChange = null,
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = Color(0xFF6200EE)
-                                        )
-                                    )
-                                    Text("Laptops")
-                                }
-                            },
-                            onClick = {
-                                filters = filters.copy(showLaptops = !filters.showLaptops)
-                            }
-                        )
-
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
 
                         DropdownMenuItem(
                             text = { Text("Image Management") },
@@ -335,7 +312,11 @@ fun MainScreen() {
         PhoneListScreen(
             modifier = Modifier.padding(innerPadding),
             filters = filters,
-            selectedManufacturer = selectedManufacturer
+            selectedManufacturer = selectedManufacturer,
+            deviceType = deviceType,
+            onManufacturersLoaded = { manufacturers ->
+                manufacturerFilters = listOf("All") + manufacturers
+            }
         )
     }
 }
@@ -441,7 +422,9 @@ fun navigateToPhoneDetail(context: android.content.Context, phone: Phone, phoneI
 fun PhoneListScreen(
     modifier: Modifier = Modifier,
     filters: DisplayFilters = DisplayFilters(),
-    selectedManufacturer: String = "All"
+    selectedManufacturer: String = "All",
+    deviceType: String = "phone",
+    onManufacturersLoaded: (List<String>) -> Unit = {}
 ) {
     val context = LocalContext.current
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
@@ -490,16 +473,37 @@ fun PhoneListScreen(
     }
 
     // Apply filters to the phone list and sort:
-    // 1. Exclude TechCity manufacturer
-    // 2. Group by model (manufacturer + model name)
-    // 3. Sort variants within each model by price (lowest to highest)
-    // 4. Sort model groups by their lowest price
-    val filteredPhones = phones
+    // 1. Filter by device type first
+    // 2. Exclude TechCity manufacturer
+    // 3. Group by model (manufacturer + model name)
+    // 4. Sort variants within each model by price (lowest to highest)
+    // 5. Sort model groups by their lowest price
+
+    // First filter by device type to get the base list
+    val deviceTypeFiltered = phones.filter { phone ->
+        phone.deviceType.equals(deviceType, ignoreCase = true)
+    }
+
+    // Extract unique manufacturers for this device type and notify parent
+    LaunchedEffect(deviceTypeFiltered) {
+        val manufacturers = deviceTypeFiltered
+            .map { it.manufacturer }
+            .filter { !it.equals("techcity", ignoreCase = true) }
+            .distinct()
+            .sorted()
+        onManufacturersLoaded(manufacturers)
+    }
+
+    val filteredPhones = deviceTypeFiltered
         .filter { phone ->
             // Exclude TechCity manufacturer
             !phone.manufacturer.equals("techcity", ignoreCase = true) &&
-                    shouldDisplayPhone(phone, filters) &&
-                    matchesManufacturerFilter(phone, selectedManufacturer)
+                    matchesManufacturerFilter(phone, selectedManufacturer) &&
+                    // Apply brand new/refurbished filter only for phones
+                    (deviceType != "phone" || run {
+                        val isRefurbished = phone.model.contains("refurbished", ignoreCase = true)
+                        if (isRefurbished) filters.showPhonesRefurbished else filters.showPhonesBrandNew
+                    })
         }
         .groupBy { "${it.manufacturer}|${it.model}" }  // Group by model
         .map { (_, variants) ->
@@ -830,9 +834,9 @@ fun PhoneListScreen(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("No devices match your filters")
+                Text("No ${deviceType}s found")
                 Text(
-                    text = "Try adjusting the display filters in the menu",
+                    text = "Try selecting a different manufacturer",
                     fontSize = 14.sp,
                     color = Color.Gray
                 )

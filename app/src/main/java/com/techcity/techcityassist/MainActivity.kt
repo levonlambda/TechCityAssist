@@ -83,7 +83,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 text = "Phones",
                 onClick = {
                     val intent = Intent(context, PhoneListActivity::class.java).apply {
-//                        putExtra(PhoneListActivity.EXTRA_DEVICE_TYPE, PhoneListActivity.DEVICE_TYPE_PHONE)
+                        putExtra("DEVICE_TYPE", "phone")
                     }
                     context.startActivity(intent)
                 }
@@ -96,7 +96,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 text = "Tablets",
                 onClick = {
                     val intent = Intent(context, PhoneListActivity::class.java).apply {
-//                        putExtra(PhoneListActivity.EXTRA_DEVICE_TYPE, PhoneListActivity.DEVICE_TYPE_TABLET)
+                        putExtra("DEVICE_TYPE", "tablet")
                     }
                     context.startActivity(intent)
                 }
@@ -109,7 +109,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 text = "Laptops",
                 onClick = {
                     val intent = Intent(context, PhoneListActivity::class.java).apply {
-//                        putExtra(PhoneListActivity.EXTRA_DEVICE_TYPE, PhoneListActivity.DEVICE_TYPE_LAPTOP)
+                        putExtra("DEVICE_TYPE", "laptop")
                     }
                     context.startActivity(intent)
                 }
