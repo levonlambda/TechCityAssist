@@ -76,13 +76,39 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var syncError by remember { mutableStateOf<String?>(null) }
 
     // Track if data is synced (to show status)
-    var isSynced by remember { mutableStateOf(PhoneListHolder.isSynced) }
-    var lastSyncTime by remember { mutableStateOf(PhoneListHolder.getTimeSinceSync()) }
+    var isSynced by remember { mutableStateOf(false) }
+    var lastSyncTime by remember { mutableStateOf("") }
 
-    // Update sync status periodically
+    // Loading state for initial local data check
+    var isCheckingLocalData by remember { mutableStateOf(true) }
+
+    // On startup: Check for local data from today
+    LaunchedEffect(Unit) {
+        if (SyncDataManager.hasTodaySync(context)) {
+            // Load from local storage
+            syncStatus = "Loading cached data..."
+            val localData = withContext(Dispatchers.IO) {
+                SyncDataManager.loadSyncedData(context)
+            }
+
+            if (localData != null) {
+                val (devices, images) = localData
+                PhoneListHolder.setSyncedData(devices, images)
+                isSynced = true
+                lastSyncTime = SyncDataManager.getTimeSinceSync(context)
+                Log.d("MainActivity", "Loaded ${devices.size} devices from local storage")
+            }
+            syncStatus = ""
+        }
+        isCheckingLocalData = false
+    }
+
+    // Update sync status when PhoneListHolder changes
     LaunchedEffect(PhoneListHolder.lastSyncTime) {
-        isSynced = PhoneListHolder.isSynced
-        lastSyncTime = PhoneListHolder.getTimeSinceSync()
+        if (PhoneListHolder.isSynced) {
+            isSynced = true
+            lastSyncTime = SyncDataManager.getTimeSinceSync(context)
+        }
     }
 
     Box(
@@ -118,7 +144,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     }
                     context.startActivity(intent)
                 },
-                enabled = isSynced && !isSyncing
+                enabled = isSynced && !isSyncing && !isCheckingLocalData
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -132,7 +158,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     }
                     context.startActivity(intent)
                 },
-                enabled = isSynced && !isSyncing
+                enabled = isSynced && !isSyncing && !isCheckingLocalData
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -146,14 +172,14 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     }
                     context.startActivity(intent)
                 },
-                enabled = isSynced && !isSyncing
+                enabled = isSynced && !isSyncing && !isCheckingLocalData
             )
 
             // Bottom spacer - larger to push content up
             Spacer(modifier = Modifier.weight(2f))
 
             // Sync status text
-            if (isSynced) {
+            if (isSynced && !isCheckingLocalData) {
                 Text(
                     text = "Last synced: $lastSyncTime",
                     fontSize = 12.sp,
@@ -168,7 +194,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             }
 
             // Sync progress/status
-            if (isSyncing) {
+            if (isSyncing || isCheckingLocalData) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
@@ -181,7 +207,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = syncStatus,
+                        text = if (isCheckingLocalData) "Checking local data..." else syncStatus,
                         fontSize = 12.sp,
                         color = Color(0xFF666666)
                     )
@@ -198,7 +224,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 )
             }
 
-            // SYNC button at bottom - disabled after synced
+            // SYNC button at bottom
+            // Now always enabled (except when syncing) so user can force re-sync
             Button(
                 onClick = {
                     scope.launch {
@@ -207,10 +234,11 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
                         try {
                             syncAllData(
+                                context = context,
                                 onProgress = { status -> syncStatus = status }
                             )
                             isSynced = true
-                            lastSyncTime = PhoneListHolder.getTimeSinceSync()
+                            lastSyncTime = SyncDataManager.getTimeSinceSync(context)
                         } catch (e: Exception) {
                             Log.e("MainActivity", "Sync failed", e)
                             syncError = "Sync failed: ${e.message}"
@@ -220,7 +248,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         }
                     }
                 },
-                enabled = !isSyncing && !isSynced,
+                enabled = !isSyncing && !isCheckingLocalData,
                 modifier = Modifier
                     .width(320.dp)
                     .height(56.dp)
@@ -229,27 +257,23 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isSynced) Color(0xFF4CAF50) else Color(0xFF6200EE),
                     contentColor = Color.White,
-                    disabledContainerColor = if (isSynced) Color(0xFF4CAF50) else Color(0xFFE0E0E0),
-                    disabledContentColor = if (isSynced) Color.White else Color(0xFF999999)
+                    disabledContainerColor = Color(0xFFE0E0E0),
+                    disabledContentColor = Color(0xFF999999)
                 ),
                 elevation = ButtonDefaults.buttonElevation(
                     defaultElevation = 2.dp,
                     pressedElevation = 4.dp
                 )
             ) {
-                if (isSyncing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                        color = Color.White
-                    )
-                } else {
-                    Text(
-                        text = if (isSynced) "SYNCED ✓" else "SYNC",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = when {
+                        isSyncing -> "SYNCING"
+                        isSynced -> "SYNCED ✓"
+                        else -> "SYNC"
+                    },
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -258,9 +282,10 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 }
 
 /**
- * Sync all data from Firebase and store in PhoneListHolder
+ * Sync all data from Firebase and store in PhoneListHolder + local storage
  */
 suspend fun syncAllData(
+    context: android.content.Context,
     onProgress: (String) -> Unit
 ) = withContext(Dispatchers.IO) {
     val db = FirebaseFirestore.getInstance()
@@ -413,8 +438,12 @@ suspend fun syncAllData(
 
     onProgress("Saving ${grouped.size} devices, ${imagesMap.size} image sets...")
 
-    // Step 5: Store in PhoneListHolder
+    // Step 5: Store in PhoneListHolder (in-memory)
     PhoneListHolder.setSyncedData(grouped, imagesMap)
+
+    // Step 6: Save to local storage for persistence
+    onProgress("Saving to local storage...")
+    SyncDataManager.saveSyncedData(context, grouped, imagesMap)
 
     onProgress("Sync complete!")
 }

@@ -65,19 +65,22 @@ class PhoneDetailActivity : ComponentActivity() {
         const val EXTRA_REFRESH_RATE = "refresh_rate"
         const val EXTRA_WIRED_CHARGING = "wired_charging"
         const val EXTRA_DEVICE_TYPE = "device_type"
+        const val EXTRA_SELECTED_COLOR = "selected_color"  // NEW: Pass selected color from list
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Get the initial phone index
+        // Get the initial phone index and selected color
         val initialIndex = intent.getIntExtra(EXTRA_PHONE_INDEX, 0)
+        val initialSelectedColor = intent.getStringExtra(EXTRA_SELECTED_COLOR) ?: ""
 
         setContent {
             TechCityAssistTheme {
                 PhoneDetailScreen(
                     initialIndex = initialIndex,
+                    initialSelectedColor = initialSelectedColor,
                     onBackPress = { finish() }
                 )
             }
@@ -89,6 +92,7 @@ class PhoneDetailActivity : ComponentActivity() {
 @Composable
 fun PhoneDetailScreen(
     initialIndex: Int,
+    initialSelectedColor: String = "",
     onBackPress: () -> Unit
 ) {
     // Get the unique phone models (one per manufacturer+model) from the holder
@@ -124,9 +128,13 @@ fun PhoneDetailScreen(
         val phone = phones[page]
         val initialPhoneImages = phoneImagesMapHolder[phone.phoneDocId]
 
+        // Only pass initialSelectedColor for the first page (the one user clicked)
+        val colorForThisPage = if (page == initialIndex) initialSelectedColor else ""
+
         PhoneDetailContent(
             phone = phone,
-            initialPhoneImages = initialPhoneImages
+            initialPhoneImages = initialPhoneImages,
+            initialSelectedColor = colorForThisPage
         )
     }
 }
@@ -135,14 +143,14 @@ fun PhoneDetailScreen(
 @Composable
 fun PhoneDetailContent(
     phone: Phone,
-    initialPhoneImages: PhoneImages?
+    initialPhoneImages: PhoneImages?,
+    initialSelectedColor: String = ""
 ) {
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
 
     // State for phone images - use initial if available, fetch if not
     var phoneImages by remember(phone.phoneDocId) { mutableStateOf(initialPhoneImages) }
-    var selectedColorIndex by remember(phone.phoneDocId) { mutableStateOf(0) }
     var isLoadingImages by remember(phone.phoneDocId) { mutableStateOf(initialPhoneImages == null) }
 
     // State for all variants (RAM/Storage/Price configurations)
@@ -154,6 +162,20 @@ fun PhoneDetailContent(
 
     // State for tracking which colors are available for each variant
     var variantColorsMap by remember(phone.phoneDocId) { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+
+    // Track selected color by NAME (not index) - initialized from intent or first color
+    var selectedColorName by remember(phone.phoneDocId) {
+        mutableStateOf(
+            if (initialSelectedColor.isNotEmpty()) initialSelectedColor
+            else phone.colors.firstOrNull() ?: ""
+        )
+    }
+
+    // Derive the index from the name (recalculates when allAvailableColors changes)
+    val selectedColorIndex = remember(allAvailableColors, selectedColorName) {
+        val index = allAvailableColors.indexOfFirst { it.equals(selectedColorName, ignoreCase = true) }
+        if (index >= 0) index else 0
+    }
 
     // Fetch phone images if not already available
     LaunchedEffect(phone.phoneDocId) {
@@ -222,11 +244,19 @@ fun PhoneDetailContent(
                 // Sort by price
                 variants = variantMap.values.sortedBy { it.retailPrice }
 
-                // Update allAvailableColors
-                allAvailableColors = allColors.toList().sorted()
+                // Update allAvailableColors - preserve order from phone.colors, add any new colors at end
+                val orderedColors = phone.colors.toMutableList()
+                allColors.forEach { color ->
+                    if (!orderedColors.any { it.equals(color, ignoreCase = true) }) {
+                        orderedColors.add(color)
+                    }
+                }
+                allAvailableColors = orderedColors
 
-                // Update variantColorsMap
-                variantColorsMap = variantColorsTemp.mapValues { it.value.toList().sorted() }
+                // Update variantColorsMap (keep same order as allAvailableColors)
+                variantColorsMap = variantColorsTemp.mapValues { (_, colors) ->
+                    orderedColors.filter { ordered -> colors.any { it.equals(ordered, ignoreCase = true) } }
+                }
             } catch (e: Exception) {
                 Log.e("PhoneDetail", "Error fetching variants", e)
                 // Fall back to the single variant passed in
@@ -245,8 +275,8 @@ fun PhoneDetailContent(
         isLoadingVariants = false
     }
 
-    // Get current color and image URL based on selected index
-    val currentColor = allAvailableColors.getOrNull(selectedColorIndex) ?: allAvailableColors.firstOrNull() ?: ""
+    // Get current color and image URL based on selected color name
+    val currentColor = selectedColorName.ifEmpty { allAvailableColors.firstOrNull() ?: "" }
     val colorImages = phoneImages?.getImagesForColor(currentColor)
     val imageUrl = colorImages?.highRes?.ifEmpty { colorImages.lowRes } ?: colorImages?.lowRes
 
@@ -325,46 +355,6 @@ fun PhoneDetailContent(
                 horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.Top
             ) {
-                // Pager state for swiping between colors
-                val colorCount = allAvailableColors.size
-                val infinitePageCount = if (colorCount > 1) 10000 else 1
-                val startPage = if (colorCount > 1) {
-                    (infinitePageCount / 2) - ((infinitePageCount / 2) % colorCount)
-                } else {
-                    0
-                }
-
-                val pagerState = rememberPagerState(
-                    initialPage = startPage,
-                    pageCount = { infinitePageCount }
-                )
-
-                // Get actual color index from page (for infinite scroll)
-                fun getActualColorIndex(page: Int): Int {
-                    return if (colorCount > 0) page % colorCount else 0
-                }
-
-                // Sync selectedColorIndex when user swipes (use settledPage to avoid race condition during animation)
-                LaunchedEffect(pagerState.settledPage) {
-                    val newIndex = getActualColorIndex(pagerState.settledPage)
-                    if (newIndex != selectedColorIndex) {
-                        selectedColorIndex = newIndex
-                    }
-                }
-
-                // Sync pager when user clicks on color swatch
-                LaunchedEffect(selectedColorIndex) {
-                    val currentPagerIndex = getActualColorIndex(pagerState.settledPage)
-                    if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
-                        // Calculate the closest page to scroll to
-                        val currentPage = pagerState.settledPage
-                        val currentActual = currentPage % colorCount
-                        val diff = selectedColorIndex - currentActual
-                        val targetPage = currentPage + diff
-                        pagerState.animateScrollToPage(targetPage)
-                    }
-                }
-
                 // Phone image with swipe - large, image scaled to crop whitespace
                 Box(
                     modifier = Modifier
@@ -375,7 +365,81 @@ fun PhoneDetailContent(
                 ) {
                     if (isLoadingImages) {
                         CircularProgressIndicator()
+                    } else if (isLoadingVariants) {
+                        // LOADING STATE: Show static image of selected color while variants load
+                        // This prevents the pager from being created with wrong initial position
+                        val colorImagesStatic = phoneImages?.getImagesForColor(selectedColorName)
+                        val imageUrlStatic = colorImagesStatic?.highRes?.ifEmpty { colorImagesStatic.lowRes } ?: colorImagesStatic?.lowRes
+
+                        if (imageUrlStatic != null) {
+                            val isHighRes = colorImagesStatic?.lowRes.isNullOrEmpty() == true
+                            val cachedPath = ImageCacheManager.getLocalImageUri(
+                                context, phone.phoneDocId, selectedColorName, isHighRes
+                            )
+
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(cachedPath ?: imageUrlStatic)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build(),
+                                contentDescription = "$displayName in $selectedColorName",
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .graphicsLayer {
+                                        scaleX = 1.15f
+                                        scaleY = 1.15f
+                                    },
+                                contentScale = ContentScale.FillHeight
+                            )
+                        } else {
+                            Text(
+                                text = "No Image Available",
+                                color = Color.Gray,
+                                fontSize = 14.sp
+                            )
+                        }
                     } else if (allAvailableColors.isNotEmpty()) {
+                        // READY STATE: Now create pager with correct initial position
+                        val colorCount = allAvailableColors.size
+                        val infinitePageCount = if (colorCount > 1) 10000 else 1
+                        val startPage = if (colorCount > 1) {
+                            (infinitePageCount / 2) - ((infinitePageCount / 2) % colorCount) + selectedColorIndex
+                        } else {
+                            0
+                        }
+
+                        val pagerState = rememberPagerState(
+                            initialPage = startPage,
+                            pageCount = { infinitePageCount }
+                        )
+
+                        // Get actual color index from page (for infinite scroll)
+                        fun getActualColorIndex(page: Int): Int {
+                            return if (colorCount > 0) page % colorCount else 0
+                        }
+
+                        // Sync selectedColorName when user swipes
+                        LaunchedEffect(pagerState.settledPage) {
+                            val newIndex = getActualColorIndex(pagerState.settledPage)
+                            val newColorName = allAvailableColors.getOrNull(newIndex) ?: ""
+                            if (newColorName.isNotEmpty() && !newColorName.equals(selectedColorName, ignoreCase = true)) {
+                                selectedColorName = newColorName
+                            }
+                        }
+
+                        // Sync pager when user clicks on color swatch
+                        LaunchedEffect(selectedColorIndex) {
+                            val currentPagerIndex = getActualColorIndex(pagerState.currentPage)
+                            if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
+                                val currentPage = pagerState.currentPage
+                                val currentActual = currentPage % colorCount
+                                val diff = selectedColorIndex - currentActual
+                                val targetPage = currentPage + diff
+                                pagerState.animateScrollToPage(targetPage)
+                            }
+                        }
+
                         HorizontalPager(
                             state = pagerState,
                             modifier = Modifier.fillMaxSize(),
@@ -459,7 +523,7 @@ fun PhoneDetailContent(
                                         colorName = colorName,
                                         hexColor = hexColor,
                                         isSelected = isSelected,
-                                        onClick = { selectedColorIndex = index }
+                                        onClick = { selectedColorName = colorName }
                                     )
                                 }
                             }
