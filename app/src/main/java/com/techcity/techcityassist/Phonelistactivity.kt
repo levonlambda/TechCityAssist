@@ -391,7 +391,7 @@ fun matchesManufacturerFilter(phone: Phone, selectedManufacturer: String): Boole
 /**
  * Navigate to Phone Detail Activity
  */
-fun navigateToPhoneDetail(context: android.content.Context, phone: Phone, phoneIndex: Int = 0) {
+fun navigateToPhoneDetail(context: android.content.Context, phone: Phone, phoneIndex: Int = 0, selectedColor: String = "") {
     val intent = Intent(context, PhoneDetailActivity::class.java).apply {
         putExtra(PhoneDetailActivity.EXTRA_PHONE_INDEX, phoneIndex)
         putExtra(PhoneDetailActivity.EXTRA_PHONE_DOC_ID, phone.phoneDocId)
@@ -414,6 +414,7 @@ fun navigateToPhoneDetail(context: android.content.Context, phone: Phone, phoneI
         putExtra(PhoneDetailActivity.EXTRA_REFRESH_RATE, phone.refreshRate)
         putExtra(PhoneDetailActivity.EXTRA_WIRED_CHARGING, phone.wiredCharging)
         putExtra(PhoneDetailActivity.EXTRA_DEVICE_TYPE, phone.deviceType)
+        putExtra(PhoneDetailActivity.EXTRA_SELECTED_COLOR, selectedColor)
     }
     context.startActivity(intent)
 }
@@ -906,10 +907,10 @@ fun PhoneListScreen(
                     phone = phone,
                     phoneImages = phoneImagesMap[phone.phoneDocId],
                     imageLoader = imageLoader,
-                    onClick = {
-                        // Navigate to detail activity with unique model index
+                    onClick = { selectedColor ->
+                        // Navigate to detail activity with unique model index and selected color
                         val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
-                        navigateToPhoneDetail(context, phone, uniqueIndex)
+                        navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
                     },
                     onLongClick = {
                         // Show doc IDs dialog
@@ -1024,7 +1025,7 @@ fun PhoneCard(
     phone: Phone,
     phoneImages: PhoneImages? = null,
     imageLoader: ImageLoader,
-    onClick: () -> Unit,
+    onClick: (selectedColorName: String) -> Unit,
     onLongClick: () -> Unit = {},
     isAlternate: Boolean = false,
     initialColorIndex: Int = 0
@@ -1314,7 +1315,10 @@ fun PhoneCard(
             .fillMaxWidth()
             .height(cardHeight)
             .combinedClickable(
-                onClick = { onClick() },
+                onClick = {
+                    val currentColorName = colorsWithImages.getOrNull(getActualColorIndex(pagerState.currentPage))?.colorName ?: ""
+                    onClick(currentColorName)
+                },
                 onLongClick = {
                     // Show both the re-download dialog and doc IDs on long press
                     showRedownloadDialog = true
