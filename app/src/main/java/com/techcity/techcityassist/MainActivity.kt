@@ -283,6 +283,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
 /**
  * Sync all data from Firebase and store in PhoneListHolder + local storage
+ * OPTION C: Now includes image preloading during sync for instant display
  */
 suspend fun syncAllData(
     context: android.content.Context,
@@ -394,9 +395,9 @@ suspend fun syncAllData(
         }
         .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))
 
-    onProgress("Fetching images for ${grouped.size} devices...")
+    onProgress("Fetching image URLs for ${grouped.size} devices...")
 
-    // Step 4: Fetch all phone images
+    // Step 4: Fetch all phone images metadata
     val phoneDocIds = grouped.mapNotNull { it.phoneDocId.ifEmpty { null } }.distinct()
 
     val imagesMap = mutableMapOf<String, PhoneImages>()
@@ -404,7 +405,7 @@ suspend fun syncAllData(
     if (phoneDocIds.isNotEmpty()) {
         // Batch fetch in chunks of 30 (Firestore limit)
         phoneDocIds.chunked(30).forEachIndexed { index, batch ->
-            onProgress("Fetching images batch ${index + 1}/${(phoneDocIds.size + 29) / 30}...")
+            onProgress("Fetching image URLs batch ${index + 1}/${(phoneDocIds.size + 29) / 30}...")
 
             val imageResults = db.collection("phone_images")
                 .whereIn("phoneDocId", batch)
@@ -435,6 +436,98 @@ suspend fun syncAllData(
             }
         }
     }
+
+    // ============================================
+    // OPTION C: PRELOAD ALL IMAGES DURING SYNC
+    // This downloads images to local cache so they
+    // display instantly when viewing phone list
+    // ============================================
+    onProgress("Preparing image preload...")
+
+    // Data class to track images that need downloading
+    data class ImageToDownload(
+        val phoneDocId: String,
+        val colorName: String,
+        val imageUrl: String,
+        val isHighRes: Boolean
+    )
+
+    val imagesToDownload = mutableListOf<ImageToDownload>()
+
+    // Collect all image URLs that need to be downloaded
+    grouped.forEach { phone ->
+        val phoneImages = imagesMap[phone.phoneDocId]
+        if (phoneImages != null) {
+            phone.colors.forEach { colorName ->
+                val colorImages = phoneImages.getImagesForColor(colorName)
+                if (colorImages != null) {
+                    // Prefer lowRes for list view (smaller file, faster download)
+                    val imageUrl = colorImages.lowRes.ifEmpty { colorImages.highRes }
+                    val isHighRes = colorImages.lowRes.isEmpty() && colorImages.highRes.isNotEmpty()
+
+                    if (imageUrl.isNotEmpty()) {
+                        // Only add if not already cached
+                        if (!ImageCacheManager.isImageCached(context, phone.phoneDocId, colorName, isHighRes)) {
+                            imagesToDownload.add(
+                                ImageToDownload(
+                                    phoneDocId = phone.phoneDocId,
+                                    colorName = colorName,
+                                    imageUrl = imageUrl,
+                                    isHighRes = isHighRes
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Download images with progress updates
+    val totalImages = imagesToDownload.size
+    if (totalImages > 0) {
+        onProgress("Downloading $totalImages images...")
+        Log.d("MainActivity", "Starting download of $totalImages images")
+
+        var successCount = 0
+        var failCount = 0
+
+        imagesToDownload.forEachIndexed { index, imageInfo ->
+            // Update progress every 5 images or at key milestones
+            if (index % 5 == 0 || index == totalImages - 1) {
+                val percent = ((index + 1) * 100) / totalImages
+                onProgress("Downloading images: ${index + 1}/$totalImages ($percent%)")
+            }
+
+            try {
+                val result = ImageCacheManager.downloadAndCacheImage(
+                    context = context,
+                    imageUrl = imageInfo.imageUrl,
+                    phoneDocId = imageInfo.phoneDocId,
+                    colorName = imageInfo.colorName,
+                    isHighRes = imageInfo.isHighRes
+                )
+                if (result != null) {
+                    successCount++
+                } else {
+                    failCount++
+                }
+            } catch (e: Exception) {
+                failCount++
+                Log.w("MainActivity", "Failed to download image for ${imageInfo.phoneDocId}/${imageInfo.colorName}: ${e.message}")
+                // Continue with other images even if one fails
+            }
+        }
+
+        Log.d("MainActivity", "Image download complete: $successCount success, $failCount failed")
+        onProgress("Downloaded $successCount images" + if (failCount > 0) " ($failCount failed)" else "")
+    } else {
+        onProgress("All images already cached!")
+        Log.d("MainActivity", "All images already cached, skipping download")
+    }
+    // ============================================
+    // END OPTION C
+    // ============================================
 
     onProgress("Saving ${grouped.size} devices, ${imagesMap.size} image sets...")
 

@@ -121,6 +121,13 @@ val TEST_INVENTORY_DOC_IDS = listOf(
 )
 // ============================================
 
+// CHANGE #1: Cache for AutoSizeText computed font sizes - avoids repeated layout passes
+private val autoSizeTextCache = mutableMapOf<String, TextUnit>()
+
+// OPTIMIZATION #10: Pre-allocated elevation values - avoids creating new Dp objects on every recomposition
+private val CARD_ELEVATION_ODD = 1.dp
+private val CARD_ELEVATION_EVEN = 8.dp
+
 // List of manufacturers for filter buttons
 val MANUFACTURER_FILTERS = listOf(
     "All",
@@ -483,9 +490,11 @@ fun PhoneListScreen(
     // 4. Sort variants within each model by price (lowest to highest)
     // 5. Sort model groups by their lowest price
 
-    // First filter by device type to get the base list
-    val deviceTypeFiltered = phones.filter { phone ->
-        phone.deviceType.equals(deviceType, ignoreCase = true)
+    // First filter by device type to get the base list - memoized
+    val deviceTypeFiltered = remember(phones, deviceType) {
+        phones.filter { phone ->
+            phone.deviceType.equals(deviceType, ignoreCase = true)
+        }
     }
 
     // Extract unique manufacturers for this device type and notify parent
@@ -498,27 +507,30 @@ fun PhoneListScreen(
         onManufacturersLoaded(manufacturers)
     }
 
-    val filteredPhones = deviceTypeFiltered
-        .filter { phone ->
-            // Exclude TechCity manufacturer
-            !phone.manufacturer.equals("techcity", ignoreCase = true) &&
-                    matchesManufacturerFilter(phone, selectedManufacturer) &&
-                    // Apply brand new/refurbished filter only for phones
-                    (deviceType != "phone" || run {
-                        val isRefurbished = phone.model.contains("refurbished", ignoreCase = true)
-                        if (isRefurbished) filters.showPhonesRefurbished else filters.showPhonesBrandNew
-                    })
-        }
-        .groupBy { "${it.manufacturer}|${it.model}" }  // Group by model
-        .map { (_, variants) ->
-            // Sort variants within each model by price
-            variants.sortedBy { it.retailPrice }
-        }
-        .sortedBy { variants ->
-            // Sort model groups by their lowest price (first item after sorting)
-            variants.firstOrNull()?.retailPrice ?: Double.MAX_VALUE
-        }
-        .flatten()  // Flatten back to a single list
+    // Memoized filtering - only recalculates when inputs change
+    val filteredPhones = remember(deviceTypeFiltered, selectedManufacturer, filters, deviceType) {
+        deviceTypeFiltered
+            .filter { phone ->
+                // Exclude TechCity manufacturer
+                !phone.manufacturer.equals("techcity", ignoreCase = true) &&
+                        matchesManufacturerFilter(phone, selectedManufacturer) &&
+                        // Apply brand new/refurbished filter only for phones
+                        (deviceType != "phone" || run {
+                            val isRefurbished = phone.model.contains("refurbished", ignoreCase = true)
+                            if (isRefurbished) filters.showPhonesRefurbished else filters.showPhonesBrandNew
+                        })
+            }
+            .groupBy { "${it.manufacturer}|${it.model}" }  // Group by model
+            .map { (_, variants) ->
+                // Sort variants within each model by price
+                variants.sortedBy { it.retailPrice }
+            }
+            .sortedBy { variants ->
+                // Sort model groups by their lowest price (first item after sorting)
+                variants.firstOrNull()?.retailPrice ?: Double.MAX_VALUE
+            }
+            .flatten()  // Flatten back to a single list
+    }
 
     // Update PhoneListHolder whenever filteredPhones or phoneImagesMap changes
     LaunchedEffect(filteredPhones, phoneImagesMap) {
@@ -1293,8 +1305,8 @@ fun PhoneCard(
     // Alternate card background colors for visual distinction
     val cardBackgroundColor = Color.White
 
-    // Alternate elevation for subtle depth difference
-    val cardElevation = if (isAlternate) 1.dp else 8.dp
+    // OPTIMIZATION #10: Use pre-allocated constants instead of creating new Dp objects
+    val cardElevation = if (isAlternate) CARD_ELEVATION_ODD else CARD_ELEVATION_EVEN
 
     // Get actual screen width to determine if SpecItems will stack vertically
     val configuration = LocalConfiguration.current
@@ -1409,10 +1421,10 @@ fun PhoneCard(
                             .padding(start = specRowStartPadding, end = 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Rear Cam", value = if (useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Rear Cam", value = if (useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1424,10 +1436,10 @@ fun PhoneCard(
                             .padding(start = specRowStartPadding, end = 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Refresh Rate", value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A", iconRes = R.raw.refresh_rate_icon, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Charging", value = if (phone.wiredCharging > 0) "${phone.wiredCharging}W" else "N/A", iconRes = R.raw.charging_icon, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Network", value = phone.network.ifEmpty { "N/A" }, iconRes = R.raw.network_icon, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Refresh Rate", value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A", iconRes = R.raw.refresh_rate_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Charging", value = if (phone.wiredCharging > 0) "${phone.wiredCharging}W" else "N/A", iconRes = R.raw.charging_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Network", value = phone.network.ifEmpty { "N/A" }, iconRes = R.raw.network_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
                     }
                 }
 
@@ -1628,11 +1640,16 @@ private fun PhoneImageItem(
     }
 }
 
+/**
+ * SpecItem - Optimized to accept layout mode from parent instead of using BoxWithConstraints
+ * This eliminates 8 BoxWithConstraints measurements per card (major performance improvement)
+ */
 @Composable
 fun SpecItem(
     label: String,
     value: String,
     iconRes: Int? = null,
+    useVerticalLayout: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1649,75 +1666,70 @@ fun SpecItem(
         }
     }
 
-    BoxWithConstraints(modifier = modifier) {
-        // Switch to vertical layout when width is constrained (< 85dp)
-        val useVerticalLayout = this.maxWidth < 85.dp
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (useVerticalLayout) {
+            // Vertical layout: Icon -> Label -> Value (for smaller screens)
+            if (imageRequest != null) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
 
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            if (useVerticalLayout) {
-                // Vertical layout: Icon -> Label -> Value (for smaller screens)
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                color = Color(0xFF888888),
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = value,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF333333),
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            // Horizontal layout: Icon + Label side by side, Value below (for larger screens)
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (imageRequest != null) {
                     AsyncImage(
                         model = imageRequest,
                         contentDescription = null,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(40.dp)
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
 
                 Text(
                     text = label,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     color = Color(0xFF888888),
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text(
-                    text = value,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF333333),
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else {
-                // Horizontal layout: Icon + Label side by side, Value below (for larger screens)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (imageRequest != null) {
-                        AsyncImage(
-                            model = imageRequest,
-                            contentDescription = null,
-                            modifier = Modifier.size(40.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-
-                    Text(
-                        text = label,
-                        fontSize = 11.sp,
-                        color = Color(0xFF888888),
-                        maxLines = 2,
-                        lineHeight = 13.sp
-                    )
-                }
-
-                Text(
-                    text = value,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF333333),
-                    maxLines = 1,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
+                    maxLines = 2,
+                    lineHeight = 13.sp
                 )
             }
+
+            Text(
+                text = value,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF333333),
+                maxLines = 1,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -1880,7 +1892,9 @@ fun LaptopSpecItemLarge(
 }
 
 /**
- * Auto-sizing text that shrinks font size to fit on a single line
+ * CHANGE #2: Auto-sizing text with CACHING optimization
+ * First render: Iteratively shrinks font until it fits (same as before)
+ * Subsequent renders: Uses cached size instantly (no repeated layout passes)
  */
 @Composable
 fun AutoSizeText(
@@ -1893,8 +1907,12 @@ fun AutoSizeText(
     maxLines: Int = 1,
     textAlign: TextAlign = TextAlign.Center
 ) {
-    var fontSize by remember(text) { mutableStateOf(maxFontSize) }
-    var readyToDraw by remember(text) { mutableStateOf(false) }
+    // Cache key includes text and maxFontSize since same text might need different sizes in different contexts
+    val cacheKey = "$text|${maxFontSize.value}"
+    val cachedSize = autoSizeTextCache[cacheKey]
+
+    var fontSize by remember(text, maxFontSize) { mutableStateOf(cachedSize ?: maxFontSize) }
+    var readyToDraw by remember(text, maxFontSize) { mutableStateOf(cachedSize != null) }
 
     Text(
         text = text,
@@ -1913,6 +1931,10 @@ fun AutoSizeText(
                 // Reduce font size by 1sp and try again
                 fontSize = (fontSize.value - 1f).sp
             } else {
+                // Cache the computed size for future use
+                if (cachedSize == null) {
+                    autoSizeTextCache[cacheKey] = fontSize
+                }
                 readyToDraw = true
             }
         }
