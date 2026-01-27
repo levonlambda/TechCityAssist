@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
+    <!-- Base app theme -->
     <style name="Theme.TechCityAssist" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- Splash Screen Theme -->
+    <style name="Theme.TechCityAssist.Splash" parent="Theme.SplashScreen">
+        <!-- Set the splash screen background color -->
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <!-- Use the properly scaled splash icon -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <!-- Remove icon background circle (set same as splash background for seamless look) -->
+        <item name="windowSplashScreenIconBackgroundColor">@color/splash_background</item>
+        <!-- Post-splash theme -->
+        <item name="postSplashScreenTheme">@style/Theme.TechCityAssist</item>
+    </style>
+
 </resources>

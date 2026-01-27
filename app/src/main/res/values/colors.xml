@@ -7,4 +7,11 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Splash Screen Colors -->
+    <color name="splash_background">#FCF9F5</color>  <!-- Warm off-white matching your app -->
+    <color name="splash_icon_background">#FCF9F5</color>  <!-- Same as background for seamless look -->
+
+    <!-- App Icon Colors -->
+    <color name="ic_launcher_background">#FCF9F5</color>  <!-- Background for adaptive icon -->
 </resources>

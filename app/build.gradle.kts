@@ -53,6 +53,9 @@ dependencies {
     // Foundation for HorizontalPager
     implementation("androidx.compose.foundation:foundation:1.6.0")
 
+    // Splash Screen API (backward compatible)
+    implementation("androidx.core:core-splashscreen:1.0.1")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

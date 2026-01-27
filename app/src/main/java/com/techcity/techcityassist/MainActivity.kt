@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.google.firebase.firestore.FirebaseFirestore
 import com.techcity.techcityassist.ui.theme.TechCityAssistTheme
 import kotlinx.coroutines.Dispatchers
@@ -50,14 +51,27 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    // Track if initial data loading is complete (for splash screen)
+    private var isDataReady = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Install splash screen BEFORE super.onCreate()
+        val splashScreen = installSplashScreen()
+
+        // Keep the splash screen visible while loading initial data
+        splashScreen.setKeepOnScreenCondition {
+            !isDataReady
+        }
+
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             TechCityAssistTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     HomeScreen(
-                        modifier = Modifier.padding(innerPadding)
+                        modifier = Modifier.padding(innerPadding),
+                        onDataReady = { isDataReady = true }
                     )
                 }
             }
@@ -66,7 +80,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(modifier: Modifier = Modifier) {
+fun HomeScreen(
+    modifier: Modifier = Modifier,
+    onDataReady: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -129,6 +146,9 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             syncStatus = ""
         }
         isCheckingLocalData = false
+
+        // Signal that data loading is complete (dismisses splash screen)
+        onDataReady()
     }
 
     // Update sync status when PhoneListHolder changes
