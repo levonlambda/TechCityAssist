@@ -12,6 +12,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.ColorFilter
 import android.os.Bundle
 import android.util.Log
@@ -164,6 +165,24 @@ data class DisplayFilters(
     val showPhonesRefurbished: Boolean = false,
     val showTablets: Boolean = false,
     val showLaptops: Boolean = false
+)
+
+// OPTIMIZATION #8: Pre-computed layout values hoisted from PhoneCard
+// These values depend only on screen width, which doesn't change during scroll.
+// Computing once in parent and passing down eliminates redundant calculations per card.
+data class CardLayoutConfig(
+    val useVerticalSpecLayout: Boolean,
+    val cardHeight: Dp,
+    val specRowStartPadding: Dp,
+    val startPadding: Dp,
+    val estimatedContentWidth: Dp,
+    val ramStorageFontSize: TextUnit,
+    val priceFontSize: TextUnit,
+    val chipPaddingH: Dp,
+    val chipPaddingV: Dp,
+    val storagePriceSpacing: Dp,
+    val ramStorageWeight: Float,
+    val priceWeight: Float
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -850,6 +869,53 @@ fun PhoneListScreen(
         )
     }
 
+    // OPTIMIZATION #8: Compute layout config ONCE here, pass to all PhoneCards
+    // This eliminates 2 LocalConfiguration reads + 15 calculations PER CARD during scroll
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.dp
+
+    val cardLayoutConfig = remember(screenWidthDp) {
+        // First set of calculations (was at top of PhoneCard)
+        val useVerticalSpecLayout = screenWidthDp < 800.dp
+        val cardHeight = if (useVerticalSpecLayout) 330.dp else 300.dp
+        val specRowStartPadding = if (useVerticalSpecLayout) 16.dp else 48.dp
+
+        // Second set of calculations (was in RAM/Storage section of PhoneCard)
+        val useSmallLayout = screenWidthDp < 800.dp
+        val startPadding = if (useSmallLayout) 24.dp else 48.dp
+
+        // Estimate the available width for RAM/Storage/Price section
+        val estimatedContentWidth = screenWidthDp - 32.dp - 40.dp - 148.dp - startPadding
+
+        // Calculate font scale based on estimated width
+        val scaleFactor = (estimatedContentWidth / 600.dp).coerceAtMost(1f)
+        val ramStorageFontSize = (13 * scaleFactor).coerceAtLeast(11f).sp
+        val priceFontSize = (24 * scaleFactor).coerceAtLeast(20f).sp
+        val chipPaddingH = (14 * scaleFactor).coerceAtLeast(8f).dp
+        val chipPaddingV = (8 * scaleFactor).coerceAtLeast(4f).dp
+
+        // Spacing adjustments for smaller screens
+        val useVerticalSpecLayoutBottom = estimatedContentWidth < 340.dp
+        val storagePriceSpacing = if (useVerticalSpecLayoutBottom) 0.dp else 20.dp
+        val ramStorageWeight = if (useVerticalSpecLayoutBottom) 1f else 3f
+        val priceWeight = if (useVerticalSpecLayoutBottom) 3f else 1.5f
+
+        CardLayoutConfig(
+            useVerticalSpecLayout = useVerticalSpecLayout,
+            cardHeight = cardHeight,
+            specRowStartPadding = specRowStartPadding,
+            startPadding = startPadding,
+            estimatedContentWidth = estimatedContentWidth,
+            ramStorageFontSize = ramStorageFontSize,
+            priceFontSize = priceFontSize,
+            chipPaddingH = chipPaddingH,
+            chipPaddingV = chipPaddingV,
+            storagePriceSpacing = storagePriceSpacing,
+            ramStorageWeight = ramStorageWeight,
+            priceWeight = priceWeight
+        )
+    }
+
     if (isLoading) {
         Box(
             modifier = modifier
@@ -910,6 +976,7 @@ fun PhoneListScreen(
                     phone = phone,
                     phoneImages = phoneImagesMap[phone.phoneDocId],
                     imageLoader = imageLoader,
+                    layoutConfig = cardLayoutConfig,
                     onClick = { selectedColor ->
                         // Navigate to detail activity with unique model index and selected color
                         val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
@@ -1028,6 +1095,7 @@ fun PhoneCard(
     phone: Phone,
     phoneImages: PhoneImages? = null,
     imageLoader: ImageLoader,
+    layoutConfig: CardLayoutConfig,
     onClick: (selectedColorName: String) -> Unit,
     onLongClick: () -> Unit = {},
     isAlternate: Boolean = false,
@@ -1259,24 +1327,13 @@ fun PhoneCard(
     // OPTIMIZATION #10: Use pre-allocated constants instead of creating new Dp objects
     val cardElevation = if (isAlternate) CARD_ELEVATION_ODD else CARD_ELEVATION_EVEN
 
-    // Get actual screen width to determine if SpecItems will stack vertically
-    val configuration = LocalConfiguration.current
-    val screenWidthDp = configuration.screenWidthDp.dp
-
-    // SpecItem switches to vertical layout when its width < 85dp
-    // Using 800dp threshold to test - will make ALL screens use taller card
-    val useVerticalSpecLayout = screenWidthDp < 800.dp
-
-    // Increase card height when specs stack vertically
-    val cardHeight = if (useVerticalSpecLayout) 330.dp else 300.dp
-
-    // Determine padding for spec rows based on layout
-    val specRowStartPadding = if (useVerticalSpecLayout) 16.dp else 48.dp
+    // OPTIMIZATION #8: Use pre-computed layout values from parent (no LocalConfiguration read here)
+    // Values come from layoutConfig which was computed once in PhoneListScreen
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(cardHeight)
+            .height(layoutConfig.cardHeight)
             .combinedClickable(
                 onClick = {
                     val currentColorName = colorsWithImages.getOrNull(getActualColorIndex(pagerState.currentPage))?.colorName ?: ""
@@ -1338,7 +1395,7 @@ fun PhoneCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = specRowStartPadding, end = 16.dp),
+                            .padding(start = layoutConfig.specRowStartPadding, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(32.dp)
                     ) {
                         LaptopSpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, modifier = Modifier.weight(1f))
@@ -1353,7 +1410,7 @@ fun PhoneCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = specRowStartPadding, end = 16.dp),
+                            .padding(start = layoutConfig.specRowStartPadding, end = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
                         // Minimal spacer
@@ -1369,13 +1426,13 @@ fun PhoneCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = specRowStartPadding, end = 0.dp),
+                            .padding(start = layoutConfig.specRowStartPadding, end = 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Rear Cam", value = if (useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "OS", value = phone.os.ifEmpty { "N/A" }, iconRes = R.raw.os_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Battery", value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A", iconRes = R.raw.battery_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Front Cam", value = phone.frontCamera.ifEmpty { "N/A" }, iconRes = R.raw.camera_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Rear Cam", value = if (layoutConfig.useVerticalSpecLayout) phone.rearCamera.replace(" ", "").ifEmpty { "N/A" } else phone.rearCamera.ifEmpty { "N/A" }, iconRes = R.raw.rear_camera_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1384,58 +1441,32 @@ fun PhoneCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = specRowStartPadding, end = 0.dp),
+                            .padding(start = layoutConfig.specRowStartPadding, end = 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Refresh Rate", value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A", iconRes = R.raw.refresh_rate_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Charging", value = if (phone.wiredCharging > 0) "${phone.wiredCharging}W" else "N/A", iconRes = R.raw.charging_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
-                        SpecItem(label = "Network", value = phone.network.ifEmpty { "N/A" }, iconRes = R.raw.network_icon, useVerticalLayout = useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Display Size", value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} Inches" else "N/A", iconRes = R.raw.screen_size_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Refresh Rate", value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A", iconRes = R.raw.refresh_rate_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Charging", value = if (phone.wiredCharging > 0) "${phone.wiredCharging}W" else "N/A", iconRes = R.raw.charging_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
+                        SpecItem(label = "Network", value = phone.network.ifEmpty { "N/A" }, iconRes = R.raw.network_icon, useVerticalLayout = layoutConfig.useVerticalSpecLayout, modifier = Modifier.weight(1f))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Bottom section - RAM, Storage, Price (responsive font sizing)
-                // OPTIMIZATION: Replaced BoxWithConstraints with calculated width
-                // This eliminates subcomposition overhead (extra layout pass per card)
-
-                // Calculate estimated content width from known layout values
-                // Layout: Screen -> LazyColumn(padding=16dp) -> Card(padding=20dp) -> Row[InfoColumn(weight=1f), ImageColumn(~148dp)]
-                val screenConfig = LocalConfiguration.current
-                val screenWidth = screenConfig.screenWidthDp.dp
-                val useSmallLayout = screenWidth < 800.dp
-                val startPadding = if (useSmallLayout) 24.dp else 48.dp
-
-                // Estimate the available width for this section:
-                // screenWidth - lazyColumnPadding(32dp) - cardPadding(40dp) - imageColumn(148dp) - startPadding
-                val estimatedContentWidth = screenWidth - 32.dp - 40.dp - 148.dp - startPadding
-
-                // Calculate font scale based on estimated width (same logic as before)
-                val scaleFactor = (estimatedContentWidth / 600.dp).coerceAtMost(1f)
-                val ramStorageFontSize = (13 * scaleFactor).coerceAtLeast(11f).sp
-                val priceFontSize = (24 * scaleFactor).coerceAtLeast(20f).sp
-                val chipPaddingH = (14 * scaleFactor).coerceAtLeast(8f).dp
-                val chipPaddingV = (8 * scaleFactor).coerceAtLeast(4f).dp
-
-                // Reduce spacing when using vertical spec layout (smaller screens)
-                val useVerticalSpecLayoutBottom = estimatedContentWidth < 340.dp
-                val storagePriceSpacing = if (useVerticalSpecLayoutBottom) 0.dp else 20.dp
-
-                // Adjust weights to give price more space on smaller screens
-                val ramStorageWeight = if (useVerticalSpecLayoutBottom) 1f else 3f
-                val priceWeight = if (useVerticalSpecLayoutBottom) 3f else 1.5f
+                // Bottom section - RAM, Storage, Price
+                // OPTIMIZATION #8: All values come from layoutConfig (computed once in PhoneListScreen)
+                // This eliminates LocalConfiguration read + 15 calculations per card during scroll
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = startPadding, end = 0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(storagePriceSpacing),
+                        .padding(start = layoutConfig.startPadding, end = 0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(layoutConfig.storagePriceSpacing),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // First 3 columns worth of space for RAM and Storage
                     Row(
-                        modifier = Modifier.weight(ramStorageWeight),
+                        modifier = Modifier.weight(layoutConfig.ramStorageWeight),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
@@ -1445,8 +1476,8 @@ fun PhoneCard(
                         ) {
                             Text(
                                 text = "${phone.ram}GB RAM",
-                                modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
-                                fontSize = ramStorageFontSize,
+                                modifier = Modifier.padding(horizontal = layoutConfig.chipPaddingH, vertical = layoutConfig.chipPaddingV),
+                                fontSize = layoutConfig.ramStorageFontSize,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF555555)
                             )
@@ -1459,8 +1490,8 @@ fun PhoneCard(
                         ) {
                             Text(
                                 text = "${phone.storage}GB Storage",
-                                modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
-                                fontSize = ramStorageFontSize,
+                                modifier = Modifier.padding(horizontal = layoutConfig.chipPaddingH, vertical = layoutConfig.chipPaddingV),
+                                fontSize = layoutConfig.ramStorageFontSize,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF555555)
                             )
@@ -1470,8 +1501,8 @@ fun PhoneCard(
                     // Price aligned with 4th column (Charging/Rear Cam)
                     Text(
                         text = formattedPrice,
-                        modifier = Modifier.weight(priceWeight),
-                        fontSize = priceFontSize,
+                        modifier = Modifier.weight(layoutConfig.priceWeight),
+                        fontSize = layoutConfig.priceFontSize,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFDB2E2E),
                         maxLines = 1,
@@ -1572,13 +1603,23 @@ private fun PhoneImageItem(
                 }
             }
 
-            AsyncImage(
-                model = ImageRequest.Builder(context)
+            // Memoize ImageRequest to avoid recreation on every recomposition
+            val imageRequest = remember(
+                imageModel,
+                phone.phoneDocId,
+                colorData.colorName,
+                colorData.cacheVersion
+            ) {
+                ImageRequest.Builder(context)
                     .data(imageModel)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .memoryCacheKey("${phone.phoneDocId}_${colorData.colorName}_${colorData.cacheVersion}")
-                    .build(),
+                    .build()
+            }
+
+            AsyncImage(
+                model = imageRequest,
                 imageLoader = imageLoader,
                 contentDescription = "${phone.manufacturer} ${phone.model} in ${colorData.colorName}",
                 modifier = Modifier.fillMaxHeight(),
