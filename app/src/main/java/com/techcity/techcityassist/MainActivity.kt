@@ -93,7 +93,35 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
             if (localData != null) {
                 val (devices, images) = localData
-                PhoneListHolder.setSyncedData(devices, images)
+
+                // Pre-compute color data (filesystem I/O happens here, not during scroll)
+                syncStatus = "Preparing color data..."
+                val precomputedColorData = withContext(Dispatchers.IO) {
+                    val colorData = mutableMapOf<String, List<ColorImageData>>()
+                    devices.forEach { phone ->
+                        val phoneImages = images[phone.phoneDocId]
+                        val colorDataList = phone.colors.map { colorName ->
+                            val colorImages = phoneImages?.getImagesForColor(colorName)
+                            val remoteUrl = colorImages?.lowRes?.ifEmpty { colorImages.highRes }
+                            val isHighRes = colorImages?.lowRes.isNullOrEmpty() == true && !colorImages?.highRes.isNullOrEmpty()
+                            val cachedPath = ImageCacheManager.getLocalImageUri(
+                                context, phone.phoneDocId, colorName, isHighRes
+                            )
+                            ColorImageData(
+                                colorName = colorName,
+                                imageUrl = cachedPath ?: remoteUrl,
+                                hexColor = colorImages?.hexColor ?: "",
+                                remoteUrl = remoteUrl,
+                                isCached = cachedPath != null
+                            )
+                        }
+                        val key = "${phone.phoneDocId}_${phone.ram}_${phone.storage}"
+                        colorData[key] = colorDataList
+                    }
+                    colorData
+                }
+
+                PhoneListHolder.setSyncedData(devices, images, precomputedColorData)
                 isSynced = true
                 lastSyncTime = SyncDataManager.getTimeSinceSync(context)
                 Log.d("MainActivity", "Loaded ${devices.size} devices from local storage")
@@ -529,10 +557,46 @@ suspend fun syncAllData(
     // END OPTION C
     // ============================================
 
+    // ============================================
+    // PRE-COMPUTE COLOR DATA FOR INSTANT SCROLL
+    // This avoids filesystem I/O during card composition
+    // ============================================
+    onProgress("Pre-computing color data...")
+
+    val precomputedColorData = mutableMapOf<String, List<ColorImageData>>()
+
+    grouped.forEach { phone ->
+        val phoneImages = imagesMap[phone.phoneDocId]
+        val colorDataList = phone.colors.map { colorName ->
+            val images = phoneImages?.getImagesForColor(colorName)
+            val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
+            val isHighRes = images?.lowRes.isNullOrEmpty() == true && !images?.highRes.isNullOrEmpty()
+
+            // Check cache - this I/O happens during sync, not during scroll
+            val cachedPath = ImageCacheManager.getLocalImageUri(
+                context, phone.phoneDocId, colorName, isHighRes
+            )
+
+            ColorImageData(
+                colorName = colorName,
+                imageUrl = cachedPath ?: remoteUrl,
+                hexColor = images?.hexColor ?: "",
+                remoteUrl = remoteUrl,
+                isCached = cachedPath != null
+            )
+        }
+
+        val key = "${phone.phoneDocId}_${phone.ram}_${phone.storage}"
+        precomputedColorData[key] = colorDataList
+    }
+
+    Log.d("MainActivity", "Pre-computed color data for ${precomputedColorData.size} variants")
+    // ============================================
+
     onProgress("Saving ${grouped.size} devices, ${imagesMap.size} image sets...")
 
     // Step 5: Store in PhoneListHolder (in-memory)
-    PhoneListHolder.setSyncedData(grouped, imagesMap)
+    PhoneListHolder.setSyncedData(grouped, imagesMap, precomputedColorData)
 
     // Step 6: Save to local storage for persistence
     onProgress("Saving to local storage...")

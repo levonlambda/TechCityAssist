@@ -28,7 +28,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -346,15 +345,7 @@ data class DeviceSpecs(
     val cpu: String = ""
 )
 
-// Data class to hold color and image info for each color variant
-data class ColorImageData(
-    val colorName: String,
-    val imageUrl: String?,       // Local path if cached, otherwise remote URL
-    val hexColor: String,
-    val remoteUrl: String? = null,  // Original remote URL for downloading
-    val isCached: Boolean = false,  // Whether the image is cached locally
-    val cacheVersion: Long = 0      // Increment to force Coil to reload
-)
+// ColorImageData is now defined in PhoneListHolder.kt
 
 /**
  * Check if a phone should be displayed based on current filters
@@ -1060,29 +1051,23 @@ fun PhoneCard(
         }
     }
 
-    // Build list of colors with their image URLs and hex colors
-    var colorsWithImages by remember(phone.colors, phoneImages) {
+    // Use precomputed color data from sync (avoids filesystem I/O during scroll)
+    // Falls back to computing on-the-fly if precomputed data not available
+    val precomputedKey = PhoneListHolder.getColorDataKey(phone)
+    var colorsWithImages by remember(phone.phoneDocId, phone.ram, phone.storage) {
         mutableStateOf(
-            phone.colors.map { colorName ->
-                val images = phoneImages?.getImagesForColor(colorName)
-                val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
-
-                val isHighRes = images?.lowRes.isNullOrEmpty() == true && !images?.highRes.isNullOrEmpty()
-                val cachedPath = ImageCacheManager.getLocalImageUri(
-                    context,
-                    phone.phoneDocId,
-                    colorName,
-                    isHighRes
-                )
-
-                ColorImageData(
-                    colorName = colorName,
-                    imageUrl = cachedPath ?: remoteUrl,
-                    hexColor = images?.hexColor ?: "",
-                    remoteUrl = remoteUrl,
-                    isCached = cachedPath != null
-                )
-            }
+            PhoneListHolder.precomputedColorData[precomputedKey]
+                ?: phone.colors.map { colorName ->
+                    val images = phoneImages?.getImagesForColor(colorName)
+                    val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
+                    ColorImageData(
+                        colorName = colorName,
+                        imageUrl = remoteUrl,
+                        hexColor = images?.hexColor ?: "",
+                        remoteUrl = remoteUrl,
+                        isCached = false
+                    )
+                }
         )
     }
 
@@ -1108,43 +1093,9 @@ fun PhoneCard(
         return if (actualColorCount > 0) page % actualColorCount else 0
     }
 
-    // Preload and cache adjacent images (only when swiping, not during scroll)
-    val currentColorIndex = getActualColorIndex(pagerState.currentPage)
-    LaunchedEffect(currentColorIndex) {
-        // Cache images for previous, current, and next colors (with wrap-around)
-        if (actualColorCount > 0) {
-            listOf(
-                (currentColorIndex - 1 + actualColorCount) % actualColorCount,
-                currentColorIndex,
-                (currentColorIndex + 1) % actualColorCount
-            ).distinct().forEach { index ->
-                val colorData = colorsWithImages[index]
-
-                // If not cached yet and has remote URL, download and cache
-                if (!colorData.isCached && !colorData.remoteUrl.isNullOrEmpty()) {
-                    val isHighRes = phoneImages?.getImagesForColor(colorData.colorName)?.lowRes.isNullOrEmpty() == true
-
-                    val cachedPath = ImageCacheManager.downloadAndCacheImage(
-                        context = context,
-                        imageUrl = colorData.remoteUrl,
-                        phoneDocId = phone.phoneDocId,
-                        colorName = colorData.colorName,
-                        isHighRes = isHighRes ?: false
-                    )
-
-                    // Update the state with the cached path
-                    if (cachedPath != null) {
-                        colorsWithImages = colorsWithImages.toMutableList().apply {
-                            this[index] = colorData.copy(
-                                imageUrl = cachedPath,
-                                isCached = true
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Note: LaunchedEffect for image caching removed - images are now preloaded during sync
+    // (see MainActivity.syncAllData and PhoneListHolder.precomputedColorData)
+    // This eliminates coroutine launches and list operations during scroll
 
     // State for re-download dialog
     var showRedownloadDialog by remember { mutableStateOf(false) }
@@ -1446,84 +1397,87 @@ fun PhoneCard(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Bottom section - RAM, Storage, Price (responsive font sizing)
+                // OPTIMIZATION: Replaced BoxWithConstraints with calculated width
+                // This eliminates subcomposition overhead (extra layout pass per card)
 
-                // Get screen width for responsive layout decisions
+                // Calculate estimated content width from known layout values
+                // Layout: Screen -> LazyColumn(padding=16dp) -> Card(padding=20dp) -> Row[InfoColumn(weight=1f), ImageColumn(~148dp)]
                 val screenConfig = LocalConfiguration.current
                 val screenWidth = screenConfig.screenWidthDp.dp
-                // Using 800dp threshold to force small layout for testing (adjust later)
                 val useSmallLayout = screenWidth < 800.dp
-                BoxWithConstraints(
+                val startPadding = if (useSmallLayout) 24.dp else 48.dp
+
+                // Estimate the available width for this section:
+                // screenWidth - lazyColumnPadding(32dp) - cardPadding(40dp) - imageColumn(148dp) - startPadding
+                val estimatedContentWidth = screenWidth - 32.dp - 40.dp - 148.dp - startPadding
+
+                // Calculate font scale based on estimated width (same logic as before)
+                val scaleFactor = (estimatedContentWidth / 600.dp).coerceAtMost(1f)
+                val ramStorageFontSize = (13 * scaleFactor).coerceAtLeast(11f).sp
+                val priceFontSize = (24 * scaleFactor).coerceAtLeast(20f).sp
+                val chipPaddingH = (14 * scaleFactor).coerceAtLeast(8f).dp
+                val chipPaddingV = (8 * scaleFactor).coerceAtLeast(4f).dp
+
+                // Reduce spacing when using vertical spec layout (smaller screens)
+                val useVerticalSpecLayoutBottom = estimatedContentWidth < 340.dp
+                val storagePriceSpacing = if (useVerticalSpecLayoutBottom) 0.dp else 20.dp
+
+                // Adjust weights to give price more space on smaller screens
+                val ramStorageWeight = if (useVerticalSpecLayoutBottom) 1f else 3f
+                val priceWeight = if (useVerticalSpecLayoutBottom) 3f else 1.5f
+
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = if (useSmallLayout) 24.dp else 48.dp, end = 0.dp)
+                        .padding(start = startPadding, end = 0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(storagePriceSpacing),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Calculate font scale based on available width
-                    // Default sizes at 600dp width, scale down for smaller screens
-                    val scaleFactor = (this.maxWidth / 600.dp).coerceAtMost(1f)
-                    val ramStorageFontSize = (13 * scaleFactor).coerceAtLeast(11f).sp
-                    val priceFontSize = (24 * scaleFactor).coerceAtLeast(20f).sp
-                    val chipPaddingH = (14 * scaleFactor).coerceAtLeast(8f).dp
-                    val chipPaddingV = (8 * scaleFactor).coerceAtLeast(4f).dp
-
-                    // Reduce spacing when using vertical spec layout (smaller screens)
-                    val useVerticalSpecLayout = this.maxWidth < 340.dp
-                    val storagePriceSpacing = if (useVerticalSpecLayout) 0.dp else 20.dp
-
-                    // Adjust weights to give price more space on smaller screens
-                    val ramStorageWeight = if (useVerticalSpecLayout) 1f else 3f
-                    val priceWeight = if (useVerticalSpecLayout) 3f else 1.5f
-
+                    // First 3 columns worth of space for RAM and Storage
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(storagePriceSpacing ),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.weight(ramStorageWeight),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // First 3 columns worth of space for RAM and Storage
-                        Row(
-                            modifier = Modifier.weight(ramStorageWeight),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White,
+                            modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color.White,
-                                modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
-                            ) {
-                                Text(
-                                    text = "${phone.ram}GB RAM",
-                                    modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
-                                    fontSize = ramStorageFontSize,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF555555)
-                                )
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color.White,
-                                modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
-                            ) {
-                                Text(
-                                    text = "${phone.storage}GB Storage",
-                                    modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
-                                    fontSize = ramStorageFontSize,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF555555)
-                                )
-                            }
+                            Text(
+                                text = "${phone.ram}GB RAM",
+                                modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
+                                fontSize = ramStorageFontSize,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF555555)
+                            )
                         }
 
-                        // Price aligned with 4th column (Charging/Rear Cam)
-                        Text(
-                            text = formattedPrice,
-                            modifier = Modifier.weight(priceWeight),
-                            fontSize = priceFontSize,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFDB2E2E),
-                            maxLines = 1,
-                            softWrap = false,
-                            textAlign = TextAlign.End
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White,
+                            modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
+                        ) {
+                            Text(
+                                text = "${phone.storage}GB Storage",
+                                modifier = Modifier.padding(horizontal = chipPaddingH, vertical = chipPaddingV),
+                                fontSize = ramStorageFontSize,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF555555)
+                            )
+                        }
                     }
+
+                    // Price aligned with 4th column (Charging/Rear Cam)
+                    Text(
+                        text = formattedPrice,
+                        modifier = Modifier.weight(priceWeight),
+                        fontSize = priceFontSize,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFDB2E2E),
+                        maxLines = 1,
+                        softWrap = false,
+                        textAlign = TextAlign.End
+                    )
                 }
             }
 

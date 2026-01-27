@@ -1,6 +1,19 @@
 package com.techcity.techcityassist
 
 /**
+ * Data class to hold color and image info for each color variant.
+ * Pre-computed at sync time to avoid filesystem I/O during scroll.
+ */
+data class ColorImageData(
+    val colorName: String,
+    val imageUrl: String?,       // Local path if cached, otherwise remote URL
+    val hexColor: String,
+    val remoteUrl: String? = null,  // Original remote URL for downloading
+    val isCached: Boolean = false,  // Whether the image is cached locally
+    val cacheVersion: Long = 0      // Increment to force Coil to reload
+)
+
+/**
  * Singleton holder for caching all device data.
  * Data is loaded once via SYNC and reused across category navigation.
  */
@@ -15,6 +28,10 @@ object PhoneListHolder {
 
     /** All phone images mapped by phoneDocId */
     var allPhoneImages: Map<String, PhoneImages> = emptyMap()
+        private set
+
+    /** Pre-computed color data for each device variant (avoids filesystem I/O during scroll) */
+    var precomputedColorData: Map<String, List<ColorImageData>> = emptyMap()
         private set
 
     /** Whether data has been synced at least once */
@@ -60,9 +77,14 @@ object PhoneListHolder {
     /**
      * Store synced data from Firebase
      */
-    fun setSyncedData(devices: List<Phone>, images: Map<String, PhoneImages>) {
+    fun setSyncedData(
+        devices: List<Phone>,
+        images: Map<String, PhoneImages>,
+        colorData: Map<String, List<ColorImageData>> = emptyMap()
+    ) {
         allDevices = devices
         allPhoneImages = images
+        precomputedColorData = colorData
         isSynced = true
         lastSyncTime = System.currentTimeMillis()
     }
@@ -83,11 +105,19 @@ object PhoneListHolder {
     }
 
     /**
+     * Get precomputed color data key for a phone variant
+     */
+    fun getColorDataKey(phone: Phone): String {
+        return "${phone.phoneDocId}_${phone.ram}_${phone.storage}"
+    }
+
+    /**
      * Clear all cached data
      */
     fun clearCache() {
         allDevices = emptyList()
         allPhoneImages = emptyMap()
+        precomputedColorData = emptyMap()
         isSynced = false
         lastSyncTime = 0L
         filteredPhones = emptyList()
