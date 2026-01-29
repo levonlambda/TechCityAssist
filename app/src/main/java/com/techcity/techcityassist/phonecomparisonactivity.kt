@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -154,108 +155,142 @@ data class SpecComparisonResults(
 }
 
 /**
- * Extract numeric value from a spec string for comparison
- * Returns null if no number can be extracted
+ * Extract decimal number from display size string
+ * "6.7 inches" -> 6.7, "6.7" -> 6.7
  */
-private fun extractNumericValue(spec: String): Double? {
+private fun extractDisplaySize(spec: String): Double? {
     if (spec == "N/A" || spec.isEmpty()) return null
-
-    // Try to find all numbers in the string and sum them (for multi-camera specs like "12MP + 50MP")
-    val numbers = Regex("""(\d+\.?\d*)""").findAll(spec).map { it.value.toDoubleOrNull() ?: 0.0 }.toList()
-
-    return if (numbers.isNotEmpty()) numbers.sum() else null
+    // Match decimal number pattern (e.g., 6.7, 10.5)
+    val match = Regex("""(\d+\.\d+|\d+)""").find(spec)
+    return match?.value?.toDoubleOrNull()
 }
 
 /**
- * Compare two spec values
- * Returns: 1 if value1 > value2, -1 if value1 < value2, 0 if equal
+ * Extract and multiply resolution dimensions
+ * "1080 x 2400" or "1080x2400" or "1080 X 2400" -> 1080 * 2400 = 2592000
  */
-private fun compareSpecValues(value1: String, value2: String): Int {
-    if (value1 == value2) return 0
+private fun extractResolutionPixels(spec: String): Long? {
+    if (spec == "N/A" || spec.isEmpty()) return null
+    // Match pattern: number x number (case insensitive x, optional spaces)
+    val match = Regex("""(\d+)\s*[xX]\s*(\d+)""").find(spec)
+    return if (match != null) {
+        val width = match.groupValues[1].toLongOrNull() ?: return null
+        val height = match.groupValues[2].toLongOrNull() ?: return null
+        width * height
+    } else null
+}
 
-    val num1 = extractNumericValue(value1)
-    val num2 = extractNumericValue(value2)
+/**
+ * Extract and sum all MP values from camera spec (Option A)
+ * "12MP + 50MP + 8MP" -> 12 + 50 + 8 = 70
+ * "50MP" -> 50
+ */
+private fun extractCameraMP(spec: String): Int? {
+    if (spec == "N/A" || spec.isEmpty()) return null
+    // Find all numbers followed by MP (case insensitive)
+    val matches = Regex("""(\d+)\s*MP""", RegexOption.IGNORE_CASE).findAll(spec)
+    val values = matches.map { it.groupValues[1].toIntOrNull() ?: 0 }.toList()
+    return if (values.isNotEmpty()) values.sum() else null
+}
 
+/**
+ * Extract network generation number
+ * "5G" -> 5, "4G" -> 4
+ */
+private fun extractNetworkGeneration(spec: String): Int? {
+    if (spec == "N/A" || spec.isEmpty()) return null
+    val match = Regex("""(\d+)\s*G""", RegexOption.IGNORE_CASE).find(spec)
+    return match?.groupValues?.get(1)?.toIntOrNull()
+}
+
+/**
+ * Extract number from string, handling commas
+ * "1,024" -> 1024, "256" -> 256
+ */
+private fun extractNumberWithCommas(spec: String): Int? {
+    if (spec == "N/A" || spec.isEmpty()) return null
+    val cleanSpec = spec.replace(",", "")
+    val match = Regex("""(\d+)""").find(cleanSpec)
+    return match?.value?.toIntOrNull()
+}
+
+/**
+ * Generic comparison helper
+ * Returns: 1 if value1 > value2, -1 if value1 < value2, 0 if equal or both null
+ */
+private fun <T : Comparable<T>> compareValues(value1: T?, value2: T?): Int {
     return when {
-        num1 == null && num2 == null -> 0  // Can't compare non-numeric values
-        num1 == null -> -1  // N/A is considered lower
-        num2 == null -> 1   // N/A is considered lower
-        num1 > num2 -> 1
-        num1 < num2 -> -1
+        value1 == null && value2 == null -> 0
+        value1 == null -> -1  // N/A is considered lower
+        value2 == null -> 1   // N/A is considered lower
+        value1 > value2 -> 1
+        value1 < value2 -> -1
         else -> 0
     }
 }
 
 /**
  * Compute comparison results for all specs between two phones
- * Positive = phone1 is higher, Negative = phone2 is higher, 0 = equal
+ * Positive = phone1 is higher/better, Negative = phone2 is higher/better, 0 = equal or no comparison
  */
 private fun computeSpecComparisons(phone1: Phone, phone2: Phone): SpecComparisonResults {
-    val formatter = NumberFormat.getNumberInstance(Locale.US)
     val comparisons = mutableMapOf<String, Int>()
 
-    // Display Size
-    val spec1DisplaySize = if (phone1.displaySize.isNotEmpty()) "${phone1.displaySize} inches" else "N/A"
-    val spec2DisplaySize = if (phone2.displaySize.isNotEmpty()) "${phone2.displaySize} inches" else "N/A"
-    comparisons["Display Size"] = compareSpecValues(spec1DisplaySize, spec2DisplaySize)
+    // Display Size - compare as decimal (6.7 vs 6.5)
+    val displaySize1 = extractDisplaySize(phone1.displaySize)
+    val displaySize2 = extractDisplaySize(phone2.displaySize)
+    comparisons["Display Size"] = compareValues(displaySize1, displaySize2)
 
-    // Resolution (compare total pixels if possible)
-    val spec1Resolution = phone1.resolution.ifEmpty { "N/A" }
-    val spec2Resolution = phone2.resolution.ifEmpty { "N/A" }
-    comparisons["Resolution"] = compareSpecValues(spec1Resolution, spec2Resolution)
+    // Resolution - multiply width x height for total pixels
+    val resolution1 = extractResolutionPixels(phone1.resolution)
+    val resolution2 = extractResolutionPixels(phone2.resolution)
+    comparisons["Resolution"] = compareValues(resolution1, resolution2)
 
-    // Refresh Rate
-    val spec1RefreshRate = if (phone1.refreshRate > 0) "${phone1.refreshRate} Hz" else "N/A"
-    val spec2RefreshRate = if (phone2.refreshRate > 0) "${phone2.refreshRate} Hz" else "N/A"
-    comparisons["Refresh Rate"] = compareSpecValues(spec1RefreshRate, spec2RefreshRate)
+    // Refresh Rate - compare raw integer values directly
+    val refreshRate1 = if (phone1.refreshRate > 0) phone1.refreshRate else null
+    val refreshRate2 = if (phone2.refreshRate > 0) phone2.refreshRate else null
+    comparisons["Refresh Rate"] = compareValues(refreshRate1, refreshRate2)
 
-    // Front Camera
-    val spec1FrontCamera = phone1.frontCamera.ifEmpty { "N/A" }
-    val spec2FrontCamera = phone2.frontCamera.ifEmpty { "N/A" }
-    comparisons["Front Camera"] = compareSpecValues(spec1FrontCamera, spec2FrontCamera)
+    // Front Camera - sum all MP values
+    val frontCamera1 = extractCameraMP(phone1.frontCamera)
+    val frontCamera2 = extractCameraMP(phone2.frontCamera)
+    comparisons["Front Camera"] = compareValues(frontCamera1, frontCamera2)
 
-    // Rear Camera
-    val spec1RearCamera = phone1.rearCamera.ifEmpty { "N/A" }
-    val spec2RearCamera = phone2.rearCamera.ifEmpty { "N/A" }
-    comparisons["Rear Camera"] = compareSpecValues(spec1RearCamera, spec2RearCamera)
+    // Rear Camera - sum all MP values
+    val rearCamera1 = extractCameraMP(phone1.rearCamera)
+    val rearCamera2 = extractCameraMP(phone2.rearCamera)
+    comparisons["Rear Camera"] = compareValues(rearCamera1, rearCamera2)
 
-    // Chipset - can't meaningfully compare, always 0
-    val spec1Chipset = phone1.chipset.ifEmpty { "N/A" }
-    val spec2Chipset = phone2.chipset.ifEmpty { "N/A" }
-    comparisons["Chipset"] = if (spec1Chipset == spec2Chipset) 0 else {
-        // Can't compare chipsets numerically, just mark as different but no winner
-        0
-    }
+    // Chipset - no comparison (always 0)
+    comparisons["Chipset"] = 0
 
-    // Battery
-    val spec1Battery = if (phone1.batteryCapacity > 0) "${formatter.format(phone1.batteryCapacity)} mAh" else "N/A"
-    val spec2Battery = if (phone2.batteryCapacity > 0) "${formatter.format(phone2.batteryCapacity)} mAh" else "N/A"
-    comparisons["Battery"] = compareSpecValues(spec1Battery, spec2Battery)
+    // Battery - compare raw integer values directly (avoids comma formatting issues)
+    val battery1 = if (phone1.batteryCapacity > 0) phone1.batteryCapacity else null
+    val battery2 = if (phone2.batteryCapacity > 0) phone2.batteryCapacity else null
+    comparisons["Battery"] = compareValues(battery1, battery2)
 
-    // Charging
-    val spec1Charging = if (phone1.wiredCharging > 0) "${phone1.wiredCharging}W" else "N/A"
-    val spec2Charging = if (phone2.wiredCharging > 0) "${phone2.wiredCharging}W" else "N/A"
-    comparisons["Charging"] = compareSpecValues(spec1Charging, spec2Charging)
+    // Charging - compare raw integer values directly
+    val charging1 = if (phone1.wiredCharging > 0) phone1.wiredCharging else null
+    val charging2 = if (phone2.wiredCharging > 0) phone2.wiredCharging else null
+    comparisons["Charging"] = compareValues(charging1, charging2)
 
-    // OS - can't meaningfully compare
-    val spec1Os = phone1.os.ifEmpty { "N/A" }
-    val spec2Os = phone2.os.ifEmpty { "N/A" }
-    comparisons["OS"] = if (spec1Os == spec2Os) 0 else 0  // Different but no winner
+    // OS - no comparison (always 0)
+    comparisons["OS"] = 0
 
-    // Network - can't meaningfully compare
-    val spec1Network = phone1.network.ifEmpty { "N/A" }
-    val spec2Network = phone2.network.ifEmpty { "N/A" }
-    comparisons["Network"] = if (spec1Network == spec2Network) 0 else 0  // Different but no winner
+    // Network - extract generation number (5G = 5, 4G = 4)
+    val network1 = extractNetworkGeneration(phone1.network)
+    val network2 = extractNetworkGeneration(phone2.network)
+    comparisons["Network"] = compareValues(network1, network2)
 
-    // RAM
-    val spec1Ram = if (phone1.ram.isNotEmpty()) "${phone1.ram}GB" else "N/A"
-    val spec2Ram = if (phone2.ram.isNotEmpty()) "${phone2.ram}GB" else "N/A"
-    comparisons["RAM"] = compareSpecValues(spec1Ram, spec2Ram)
+    // RAM - parse string to number (handles potential edge cases)
+    val ram1 = extractNumberWithCommas(phone1.ram)
+    val ram2 = extractNumberWithCommas(phone2.ram)
+    comparisons["RAM"] = compareValues(ram1, ram2)
 
-    // Storage
-    val spec1Storage = if (phone1.storage.isNotEmpty()) "${phone1.storage}GB" else "N/A"
-    val spec2Storage = if (phone2.storage.isNotEmpty()) "${phone2.storage}GB" else "N/A"
-    comparisons["Storage"] = compareSpecValues(spec1Storage, spec2Storage)
+    // Storage - parse string to number (handles commas like "1,024")
+    val storage1 = extractNumberWithCommas(phone1.storage)
+    val storage2 = extractNumberWithCommas(phone2.storage)
+    comparisons["Storage"] = compareValues(storage1, storage2)
 
     return SpecComparisonResults(comparisons)
 }
@@ -285,6 +320,9 @@ fun PhoneComparisonScreen(
 
     // Toggle state for showing/hiding comparison arrows
     var showComparisonArrows by remember { mutableStateOf(true) }
+
+    // Toggle state for showing/hiding alternating background pill
+    var showBackgroundPill by remember { mutableStateOf(true) }
 
     // Callback to update row heights when measured
     val onSpecRowHeightMeasured: (String, Dp) -> Unit = { label, height ->
@@ -326,7 +364,7 @@ fun PhoneComparisonScreen(
             .background(Color.White)
             .padding(horizontal = 16.dp)
     ) {
-        // TechCity logo at top center
+        // TechCity logo at top center - tap to toggle background pill
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -335,8 +373,10 @@ fun PhoneComparisonScreen(
         ) {
             Image(
                 painter = painterResource(id = R.drawable.tc_logo_flat_colored),
-                contentDescription = "TechCity Logo",
-                modifier = Modifier.height(36.dp),
+                contentDescription = "TechCity Logo - tap to toggle background",
+                modifier = Modifier
+                    .height(36.dp)
+                    .clickable { showBackgroundPill = !showBackgroundPill },
                 contentScale = ContentScale.FillHeight
             )
         }
@@ -360,6 +400,7 @@ fun PhoneComparisonScreen(
                 onSpecRowHeightMeasured = onSpecRowHeightMeasured,
                 showComparisonArrows = showComparisonArrows,
                 onToggleArrows = { showComparisonArrows = !showComparisonArrows },
+                showBackgroundPill = showBackgroundPill,
                 isLeftColumn = true,
                 modifier = Modifier.weight(1f)
             )
@@ -383,6 +424,7 @@ fun PhoneComparisonScreen(
                 onSpecRowHeightMeasured = onSpecRowHeightMeasured,
                 showComparisonArrows = showComparisonArrows,
                 onToggleArrows = { showComparisonArrows = !showComparisonArrows },
+                showBackgroundPill = showBackgroundPill,
                 isLeftColumn = false,
                 modifier = Modifier.weight(1f)
             )
@@ -403,6 +445,7 @@ fun PhoneComparisonColumn(
     onSpecRowHeightMeasured: (String, Dp) -> Unit,
     showComparisonArrows: Boolean,
     onToggleArrows: () -> Unit,
+    showBackgroundPill: Boolean,
     isLeftColumn: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -428,11 +471,15 @@ fun PhoneComparisonColumn(
     fun getActualViewIndex(page: Int): Int = page % 2
 
     // Format display name
+    // For non-Apple: if manufacturer + model is too long, just show model to avoid excessive scrolling
     val displayName = remember(phone.manufacturer, phone.model) {
         if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
             formatModelNameComparison(phone.model)
         } else {
-            "${phone.manufacturer} ${formatModelNameComparison(phone.model)}"
+            val fullName = "${phone.manufacturer} ${formatModelNameComparison(phone.model)}"
+            val modelOnly = formatModelNameComparison(phone.model)
+            // If full name exceeds ~20 chars, just show model name
+            if (fullName.length > 20) modelOnly else fullName
         }
     }
 
@@ -440,11 +487,13 @@ fun PhoneComparisonColumn(
         modifier = modifier.fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Model name at top
+        // Model name at top - horizontally scrollable for long names
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
         ) {
             if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
                 Image(
@@ -460,11 +509,12 @@ fun PhoneComparisonColumn(
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A),
                 textAlign = TextAlign.Center,
-                maxLines = 2
+                maxLines = 1,
+                softWrap = false
             )
         }
 
-        Spacer(modifier = Modifier.height(45.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Swipeable content area - infinite alternation
         HorizontalPager(
@@ -483,6 +533,7 @@ fun PhoneComparisonColumn(
                         onSpecRowHeightMeasured = onSpecRowHeightMeasured,
                         showComparisonArrows = showComparisonArrows,
                         onToggleArrows = onToggleArrows,
+                        showBackgroundPill = showBackgroundPill,
                         isLeftColumn = isLeftColumn,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -521,6 +572,7 @@ fun PhoneSpecsView(
     onSpecRowHeightMeasured: (String, Dp) -> Unit,
     showComparisonArrows: Boolean,
     onToggleArrows: () -> Unit,
+    showBackgroundPill: Boolean,
     isLeftColumn: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -534,7 +586,7 @@ fun PhoneSpecsView(
             // Left column: start padding, arrow at end (close to separator)
             // Right column: arrow at start (close to separator), content centered, end padding
             .padding(start = if (isLeftColumn) 48.dp else 0.dp, end = if (isLeftColumn) 0.dp else 48.dp, top = 0.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // Display Size
         ComparisonSpecRow(
@@ -546,7 +598,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Display Size", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 0,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Resolution
@@ -559,7 +613,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Resolution", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 1,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Refresh Rate
@@ -572,7 +628,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Refresh Rate", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 2,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Front Camera
@@ -585,7 +643,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Front Camera", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 3,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Rear Camera
@@ -598,7 +658,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Rear Camera", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 4,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Chipset
@@ -611,7 +673,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Chipset", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 5,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Battery
@@ -624,7 +688,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Battery", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 6,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Charging
@@ -637,7 +703,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Charging", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 7,
+            showBackgroundPill = showBackgroundPill
         )
 
         // OS
@@ -650,7 +718,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("OS", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 8,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Network
@@ -663,7 +733,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Network", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 9,
+            showBackgroundPill = showBackgroundPill
         )
 
         // RAM
@@ -676,7 +748,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("RAM", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 10,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Storage
@@ -689,7 +763,9 @@ fun PhoneSpecsView(
             onHeightMeasured = { height -> onSpecRowHeightMeasured("Storage", height) },
             showArrow = showComparisonArrows,
             onToggleArrow = onToggleArrows,
-            isLeftColumn = isLeftColumn
+            isLeftColumn = isLeftColumn,
+            rowIndex = 11,
+            showBackgroundPill = showBackgroundPill
         )
 
         // Note: Price is shown separately at bottom of column, visible in both views
@@ -805,10 +881,19 @@ fun ComparisonSpecRow(
     onHeightMeasured: (Dp) -> Unit = {},
     showArrow: Boolean = true,
     onToggleArrow: () -> Unit = {},
-    isLeftColumn: Boolean = true
+    isLeftColumn: Boolean = true,
+    rowIndex: Int = 0,  // For alternating background
+    showBackgroundPill: Boolean = true  // Toggle for showing/hiding background
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+
+    // Alternating background colors - only when showBackgroundPill is true
+    val backgroundColor = if (showBackgroundPill) {
+        if (rowIndex % 2 == 0) Color.White else Color(0xFFF5F5F5)
+    } else {
+        Color.Transparent
+    }
 
     // Arrow size - increased for better visibility
     val arrowSize = 32.dp
@@ -831,12 +916,13 @@ fun ComparisonSpecRow(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = minHeight)
+            .background(backgroundColor, RoundedCornerShape(8.dp))
             .onGloballyPositioned { coordinates ->
                 val measuredHeight = with(density) { coordinates.size.height.toDp() }
                 onHeightMeasured(measuredHeight)
             }
             .clickable { onToggleArrow() }
-            .padding(vertical = 2.dp),
+            .padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isLeftColumn) {
@@ -915,10 +1001,10 @@ fun ComparisonSpecRow(
                 }
             }
 
-            // Content area - centered in remaining space
+            // Content area - left-aligned for consistent positioning
             Box(
                 modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.CenterStart
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically
