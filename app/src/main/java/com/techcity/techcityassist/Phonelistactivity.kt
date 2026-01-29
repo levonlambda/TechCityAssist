@@ -48,6 +48,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -67,6 +68,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -88,6 +90,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
@@ -148,6 +151,15 @@ val MANUFACTURER_FILTERS = listOf(
     "Realme"
 )
 
+// Priority order for manufacturers
+val MANUFACTURER_PRIORITY = listOf(
+    "Apple",
+    "Samsung",
+    "Infinix",
+    "Tecno",
+    "Xiaomi"
+)
+
 class PhoneListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -169,7 +181,12 @@ data class DisplayFilters(
     val showPhonesBrandNew: Boolean = true,
     val showPhonesRefurbished: Boolean = false,
     val showTablets: Boolean = false,
-    val showLaptops: Boolean = false
+    val showLaptops: Boolean = false,
+    // Price filter - separate enable flags for min and max
+    val enableMinPrice: Boolean = false,
+    val enableMaxPrice: Boolean = false,
+    val minPrice: Double? = null,
+    val maxPrice: Double? = null
 )
 
 // OPTIMIZATION #8: Pre-computed layout values hoisted from PhoneCard
@@ -190,6 +207,37 @@ data class CardLayoutConfig(
     val priceWeight: Float
 )
 
+/**
+ * Sort manufacturers with priority ordering
+ * Priority manufacturers come first in the specified order,
+ * followed by other manufacturers sorted alphabetically
+ */
+fun sortManufacturersWithPriority(manufacturers: List<String>): List<String> {
+    val prioritySet = MANUFACTURER_PRIORITY.map { it.lowercase() }.toSet()
+
+    // Separate priority and non-priority manufacturers
+    val priorityManufacturers = mutableListOf<String>()
+    val otherManufacturers = mutableListOf<String>()
+
+    manufacturers.forEach { manufacturer ->
+        if (prioritySet.contains(manufacturer.lowercase())) {
+            priorityManufacturers.add(manufacturer)
+        } else {
+            otherManufacturers.add(manufacturer)
+        }
+    }
+
+    // Sort priority manufacturers by their position in the priority list
+    val sortedPriority = priorityManufacturers.sortedBy { manufacturer ->
+        MANUFACTURER_PRIORITY.indexOfFirst { it.equals(manufacturer, ignoreCase = true) }
+    }
+
+    // Sort other manufacturers alphabetically
+    val sortedOthers = otherManufacturers.sorted()
+
+    return sortedPriority + sortedOthers
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(deviceType: String = "phone") {
@@ -198,6 +246,10 @@ fun MainScreen(deviceType: String = "phone") {
 
     // Filter state - persisted across recompositions
     var filters by remember { mutableStateOf(DisplayFilters()) }
+
+    // Price filter input fields (as strings for text input)
+    var minPriceInput by remember { mutableStateOf("") }
+    var maxPriceInput by remember { mutableStateOf("") }
 
     // Manufacturer filter state
     var selectedManufacturer by remember { mutableStateOf("All") }
@@ -319,6 +371,99 @@ fun MainScreen(deviceType: String = "phone") {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
 
+                        // Price Filter Section - visible for all device types
+                        Text(
+                            text = "Price Filter",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF6200EE),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+
+                        // Min Price input with checkbox
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = filters.enableMinPrice,
+                                onCheckedChange = { checked ->
+                                    filters = filters.copy(
+                                        enableMinPrice = checked,
+                                        minPrice = if (checked) minPriceInput.toDoubleOrNull() else null
+                                    )
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = Color(0xFF6200EE)
+                                )
+                            )
+                            OutlinedTextField(
+                                value = minPriceInput,
+                                onValueChange = { value ->
+                                    // Only allow digits and decimal point
+                                    val filtered = value.filter { it.isDigit() || it == '.' }
+                                    minPriceInput = filtered
+                                    if (filters.enableMinPrice) {
+                                        filters = filters.copy(minPrice = filtered.toDoubleOrNull())
+                                    }
+                                },
+                                label = { Text("Min Price", fontSize = 12.sp) },
+                                placeholder = { Text("0", fontSize = 12.sp) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                singleLine = true,
+                                enabled = filters.enableMinPrice,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                            )
+                        }
+
+                        // Max Price input with checkbox
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = filters.enableMaxPrice,
+                                onCheckedChange = { checked ->
+                                    filters = filters.copy(
+                                        enableMaxPrice = checked,
+                                        maxPrice = if (checked) maxPriceInput.toDoubleOrNull() else null
+                                    )
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = Color(0xFF6200EE)
+                                )
+                            )
+                            OutlinedTextField(
+                                value = maxPriceInput,
+                                onValueChange = { value ->
+                                    // Only allow digits and decimal point
+                                    val filtered = value.filter { it.isDigit() || it == '.' }
+                                    maxPriceInput = filtered
+                                    if (filters.enableMaxPrice) {
+                                        filters = filters.copy(maxPrice = filtered.toDoubleOrNull())
+                                    }
+                                },
+                                label = { Text("Max Price", fontSize = 12.sp) },
+                                placeholder = { Text("999999", fontSize = 12.sp) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp),
+                                singleLine = true,
+                                enabled = filters.enableMaxPrice,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                            )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                         DropdownMenuItem(
                             text = { Text("Image Management") },
                             onClick = {
@@ -345,7 +490,8 @@ fun MainScreen(deviceType: String = "phone") {
             selectedManufacturer = selectedManufacturer,
             deviceType = deviceType,
             onManufacturersLoaded = { manufacturers ->
-                manufacturerFilters = listOf("All") + manufacturers
+                // Sort with priority ordering, then prepend "All"
+                manufacturerFilters = listOf("All") + sortManufacturersWithPriority(manufacturers)
             }
         )
     }
@@ -408,6 +554,27 @@ fun shouldDisplayPhone(phone: Phone, filters: DisplayFilters): Boolean {
 fun matchesManufacturerFilter(phone: Phone, selectedManufacturer: String): Boolean {
     if (selectedManufacturer == "All") return true
     return phone.manufacturer.equals(selectedManufacturer, ignoreCase = true)
+}
+
+/**
+ * Check if a phone matches the price filter
+ */
+fun matchesPriceFilter(phone: Phone, filters: DisplayFilters): Boolean {
+    // Check min price only if enabled
+    val minOk = if (filters.enableMinPrice && filters.minPrice != null) {
+        phone.retailPrice >= filters.minPrice
+    } else {
+        true
+    }
+
+    // Check max price only if enabled
+    val maxOk = if (filters.enableMaxPrice && filters.maxPrice != null) {
+        phone.retailPrice <= filters.maxPrice
+    } else {
+        true
+    }
+
+    return minOk && maxOk
 }
 
 /**
@@ -545,6 +712,8 @@ fun PhoneListScreen(
                 // Exclude TechCity manufacturer
                 !phone.manufacturer.equals("techcity", ignoreCase = true) &&
                         matchesManufacturerFilter(phone, selectedManufacturer) &&
+                        // Apply price filter
+                        matchesPriceFilter(phone, filters) &&
                         // Apply brand new/refurbished filter only for phones
                         (deviceType != "phone" || run {
                             val isRefurbished = phone.model.contains("refurbished", ignoreCase = true)
@@ -1133,7 +1302,7 @@ fun PhoneListScreen(
             ) {
                 Text("No ${deviceType}s found")
                 Text(
-                    text = "Try selecting a different manufacturer",
+                    text = if (filters.enableMinPrice || filters.enableMaxPrice) "Try adjusting your price filter or manufacturer" else "Try selecting a different manufacturer",
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
