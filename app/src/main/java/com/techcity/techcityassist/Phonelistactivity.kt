@@ -51,6 +51,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -127,6 +128,10 @@ private val autoSizeTextCache = mutableMapOf<String, TextUnit>()
 // OPTIMIZATION #10: Pre-allocated elevation values - avoids creating new Dp objects on every recomposition
 private val CARD_ELEVATION_ODD = 1.dp
 private val CARD_ELEVATION_EVEN = 8.dp
+
+// Comparison card background color
+private val COMPARISON_MARKED_COLOR = Color(0xFFE3F2FD)  // Light blue tint for marked cards
+private val COMPARISON_BORDER_COLOR = Color(0xFF2196F3)  // Blue border for marked cards
 
 // List of manufacturers for filter buttons
 val MANUFACTURER_FILTERS = listOf(
@@ -436,6 +441,17 @@ fun navigateToPhoneDetail(context: android.content.Context, phone: Phone, phoneI
     context.startActivity(intent)
 }
 
+/**
+ * Helper function to get a display name for a phone (used in comparison dialog)
+ */
+fun getPhoneDisplayName(phone: Phone): String {
+    return if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
+        formatModelName(phone.model)
+    } else {
+        "${phone.manufacturer} ${formatModelName(phone.model)}"
+    }
+}
+
 @Composable
 fun PhoneListScreen(
     modifier: Modifier = Modifier,
@@ -453,6 +469,11 @@ fun PhoneListScreen(
 
     // State for showing doc IDs dialog (on long press)
     var selectedPhoneForDocIds by remember { mutableStateOf<Phone?>(null) }
+
+    // State for comparison feature
+    var markedPhoneForComparison by remember { mutableStateOf<Phone?>(null) }
+    var phoneToCompareWith by remember { mutableStateOf<Phone?>(null) }
+    var showComparisonDialog by remember { mutableStateOf(false) }
 
     // Store phone images for all phones (phoneDocId -> PhoneImages)
     var phoneImagesMap by remember { mutableStateOf<Map<String, PhoneImages>>(emptyMap()) }
@@ -869,6 +890,164 @@ fun PhoneListScreen(
         )
     }
 
+    // Comparison confirmation dialog
+    if (showComparisonDialog && markedPhoneForComparison != null && phoneToCompareWith != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showComparisonDialog = false
+                phoneToCompareWith = null
+            },
+            title = {
+                Text(
+                    text = "Compare Devices",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Do you want to compare these two devices?",
+                        fontSize = 14.sp,
+                        color = Color(0xFF666666)
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Phone 1
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = COMPARISON_MARKED_COLOR
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = "Device 1",
+                                fontSize = 11.sp,
+                                color = Color(0xFF666666)
+                            )
+                            Text(
+                                text = getPhoneDisplayName(markedPhoneForComparison!!),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "${markedPhoneForComparison!!.ram}GB / ${markedPhoneForComparison!!.storage}GB",
+                                fontSize = 13.sp,
+                                color = Color(0xFF888888)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // VS text
+                    Text(
+                        text = "VS",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color(0xFF2196F3)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Phone 2
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF5F5F5)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = "Device 2",
+                                fontSize = 11.sp,
+                                color = Color(0xFF666666)
+                            )
+                            Text(
+                                text = getPhoneDisplayName(phoneToCompareWith!!),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "${phoneToCompareWith!!.ram}GB / ${phoneToCompareWith!!.storage}GB",
+                                fontSize = 13.sp,
+                                color = Color(0xFF888888)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // Navigate to comparison activity
+                        val intent = Intent(context, PhoneComparisonActivity::class.java).apply {
+                            // Phone 1 data
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_DOC_ID, markedPhoneForComparison!!.phoneDocId)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_MANUFACTURER, markedPhoneForComparison!!.manufacturer)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_MODEL, markedPhoneForComparison!!.model)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_RAM, markedPhoneForComparison!!.ram)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_STORAGE, markedPhoneForComparison!!.storage)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_RETAIL_PRICE, markedPhoneForComparison!!.retailPrice)
+                            putStringArrayListExtra(PhoneComparisonActivity.EXTRA_PHONE1_COLORS, ArrayList(markedPhoneForComparison!!.colors))
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_CHIPSET, markedPhoneForComparison!!.chipset)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_FRONT_CAMERA, markedPhoneForComparison!!.frontCamera)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_REAR_CAMERA, markedPhoneForComparison!!.rearCamera)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_BATTERY, markedPhoneForComparison!!.batteryCapacity)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_DISPLAY_SIZE, markedPhoneForComparison!!.displaySize)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_OS, markedPhoneForComparison!!.os)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_NETWORK, markedPhoneForComparison!!.network)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_RESOLUTION, markedPhoneForComparison!!.resolution)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_REFRESH_RATE, markedPhoneForComparison!!.refreshRate)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE1_WIRED_CHARGING, markedPhoneForComparison!!.wiredCharging)
+
+                            // Phone 2 data
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_DOC_ID, phoneToCompareWith!!.phoneDocId)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_MANUFACTURER, phoneToCompareWith!!.manufacturer)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_MODEL, phoneToCompareWith!!.model)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_RAM, phoneToCompareWith!!.ram)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_STORAGE, phoneToCompareWith!!.storage)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_RETAIL_PRICE, phoneToCompareWith!!.retailPrice)
+                            putStringArrayListExtra(PhoneComparisonActivity.EXTRA_PHONE2_COLORS, ArrayList(phoneToCompareWith!!.colors))
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_CHIPSET, phoneToCompareWith!!.chipset)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_FRONT_CAMERA, phoneToCompareWith!!.frontCamera)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_REAR_CAMERA, phoneToCompareWith!!.rearCamera)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_BATTERY, phoneToCompareWith!!.batteryCapacity)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_DISPLAY_SIZE, phoneToCompareWith!!.displaySize)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_OS, phoneToCompareWith!!.os)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_NETWORK, phoneToCompareWith!!.network)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_RESOLUTION, phoneToCompareWith!!.resolution)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_REFRESH_RATE, phoneToCompareWith!!.refreshRate)
+                            putExtra(PhoneComparisonActivity.EXTRA_PHONE2_WIRED_CHARGING, phoneToCompareWith!!.wiredCharging)
+                        }
+                        context.startActivity(intent)
+
+                        showComparisonDialog = false
+                        markedPhoneForComparison = null
+                        phoneToCompareWith = null
+                    }
+                ) {
+                    Text("Compare", color = Color(0xFF2196F3))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showComparisonDialog = false
+                        phoneToCompareWith = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // OPTIMIZATION #8: Compute layout config ONCE here, pass to all PhoneCards
     // This eliminates 2 LocalConfiguration reads + 15 calculations PER CARD during scroll
     val configuration = LocalConfiguration.current
@@ -961,34 +1140,95 @@ fun PhoneListScreen(
             }
         }
     } else {
-        LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color(0xFFFCF9F5))  // Warm off-white background
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            itemsIndexed(
-                items = filteredPhones,
-                key = { _, phone -> "${phone.phoneDocId}_${phone.ram}_${phone.storage}" }
-            ) { index, phone ->
-                PhoneCard(
-                    phone = phone,
-                    phoneImages = phoneImagesMap[phone.phoneDocId],
-                    imageLoader = imageLoader,
-                    layoutConfig = cardLayoutConfig,
-                    onClick = { selectedColor ->
-                        // Navigate to detail activity with unique model index and selected color
-                        val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
-                        navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
-                    },
-                    onLongClick = {
-                        // Show doc IDs dialog
-                        selectedPhoneForDocIds = phone
-                    },
-                    isAlternate = index % 2 == 1,
-                    initialColorIndex = index % 2  // Alternate starting color
-                )
+        Box(modifier = modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFCF9F5))  // Warm off-white background
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                itemsIndexed(
+                    items = filteredPhones,
+                    key = { _, phone -> "${phone.phoneDocId}_${phone.ram}_${phone.storage}" }
+                ) { index, phone ->
+                    // Check if this phone is marked for comparison
+                    val isMarkedForComparison = markedPhoneForComparison?.let { marked ->
+                        marked.phoneDocId == phone.phoneDocId &&
+                                marked.ram == phone.ram &&
+                                marked.storage == phone.storage
+                    } ?: false
+
+                    PhoneCard(
+                        phone = phone,
+                        phoneImages = phoneImagesMap[phone.phoneDocId],
+                        imageLoader = imageLoader,
+                        layoutConfig = cardLayoutConfig,
+                        isMarkedForComparison = isMarkedForComparison,
+                        onClick = { selectedColor ->
+                            // Navigate to detail activity with unique model index and selected color
+                            val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
+                            navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
+                        },
+                        onLongClick = {
+                            // Handle comparison marking
+                            if (markedPhoneForComparison == null) {
+                                // No phone marked yet - mark this one
+                                markedPhoneForComparison = phone
+                            } else if (isMarkedForComparison) {
+                                // User long-pressed the same phone - unmark it
+                                markedPhoneForComparison = null
+                            } else {
+                                // A different phone is already marked - show comparison dialog
+                                phoneToCompareWith = phone
+                                showComparisonDialog = true
+                            }
+                        },
+                        isAlternate = index % 2 == 1,
+                        initialColorIndex = index % 2  // Alternate starting color
+                    )
+                }
+            }
+
+            // Floating indicator when a phone is marked for comparison
+            if (markedPhoneForComparison != null) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF2196F3),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Comparing: ${getPhoneDisplayName(markedPhoneForComparison!!)}",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clickable { markedPhoneForComparison = null },
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.2f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cancel comparison",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .size(16.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1096,6 +1336,7 @@ fun PhoneCard(
     phoneImages: PhoneImages? = null,
     imageLoader: ImageLoader,
     layoutConfig: CardLayoutConfig,
+    isMarkedForComparison: Boolean = false,
     onClick: (selectedColorName: String) -> Unit,
     onLongClick: () -> Unit = {},
     isAlternate: Boolean = false,
@@ -1321,8 +1562,8 @@ fun PhoneCard(
         )
     }
 
-    // Alternate card background colors for visual distinction
-    val cardBackgroundColor = Color.White
+    // Card background color - changes when marked for comparison
+    val cardBackgroundColor = if (isMarkedForComparison) COMPARISON_MARKED_COLOR else Color.White
 
     // OPTIMIZATION #10: Use pre-allocated constants instead of creating new Dp objects
     val cardElevation = if (isAlternate) CARD_ELEVATION_ODD else CARD_ELEVATION_EVEN
@@ -1334,14 +1575,19 @@ fun PhoneCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(layoutConfig.cardHeight)
+            .then(
+                if (isMarkedForComparison) {
+                    Modifier.border(2.dp, COMPARISON_BORDER_COLOR, RoundedCornerShape(16.dp))
+                } else {
+                    Modifier
+                }
+            )
             .combinedClickable(
                 onClick = {
                     val currentColorName = colorsWithImages.getOrNull(getActualColorIndex(pagerState.currentPage))?.colorName ?: ""
                     onClick(currentColorName)
                 },
                 onLongClick = {
-                    // Show both the re-download dialog and doc IDs on long press
-                    showRedownloadDialog = true
                     onLongClick()
                 }
             ),
@@ -1471,7 +1717,7 @@ fun PhoneCard(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = Color.White,
+                            color = if (isMarkedForComparison) Color.White else Color.White,
                             modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
                         ) {
                             Text(
@@ -1485,7 +1731,7 @@ fun PhoneCard(
 
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = Color.White,
+                            color = if (isMarkedForComparison) Color.White else Color.White,
                             modifier = Modifier.border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(6.dp))
                         ) {
                             Text(

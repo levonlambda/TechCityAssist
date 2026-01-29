@@ -44,6 +44,13 @@
             android:exported="false"
             android:label="Phone Details"
             android:theme="@style/Theme.TechCityAssist" />
+
+        <!-- Phone Comparison Activity -->
+        <activity
+            android:name=".PhoneComparisonActivity"
+            android:exported="false"
+            android:label="Compare Devices"
+            android:theme="@style/Theme.TechCityAssist" />
     </application>
 
 </manifest>
