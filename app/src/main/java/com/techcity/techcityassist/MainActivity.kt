@@ -1,6 +1,7 @@
 package com.techcity.techcityassist
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -25,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -49,6 +53,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+
+// ============================================
+// DEBUG MODE - Set to false for production
+// ============================================
+const val SHOW_DEBUG_INFO = false
+// ============================================
 
 class MainActivity : ComponentActivity() {
 
@@ -65,6 +75,10 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+
+        // Force portrait orientation (Android 16+ ignores manifest attribute)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
         enableEdgeToEdge()
         setContent {
             TechCityAssistTheme {
@@ -325,6 +339,142 @@ fun HomeScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+
+        // ============================================
+        // DEBUG INFO OVERLAY
+        // ============================================
+        if (SHOW_DEBUG_INFO) {
+            DebugScreenInfoOverlay()
+        }
+    }
+}
+
+/**
+ * Debug overlay showing screen dimensions
+ * Displays in the top-right corner
+ */
+@Composable
+fun DebugScreenInfoOverlay() {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+
+    // Get screen dimensions in dp
+    val screenWidthDp = configuration.screenWidthDp
+    val screenHeightDp = configuration.screenHeightDp
+
+    // Get screen dimensions in pixels
+    val screenWidthPx = with(density) { screenWidthDp.dp.toPx().toInt() }
+    val screenHeightPx = with(density) { screenHeightDp.dp.toPx().toInt() }
+
+    // Determine window size class
+    val sizeClass = when {
+        screenWidthDp < 600 -> "Compact"
+        screenWidthDp < 840 -> "Medium"
+        else -> "Expanded"
+    }
+
+    // Density info
+    val densityDpi = density.density
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopEnd
+    ) {
+        Surface(
+            modifier = Modifier
+                .padding(top = 48.dp, end = 8.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = Color.Black.copy(alpha = 0.75f),
+            shadowElevation = 4.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                Text(
+                    text = "🔧 DEBUG INFO",
+                    color = Color.Yellow,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Screen dimensions in dp (most important!)
+                Text(
+                    text = "Screen Size (dp):",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = "${screenWidthDp} x ${screenHeightDp}",
+                    color = Color.Cyan,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Window size class
+                Text(
+                    text = "Size Class:",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = sizeClass,
+                    color = when(sizeClass) {
+                        "Compact" -> Color.Green
+                        "Medium" -> Color.Yellow
+                        else -> Color(0xFFFF9800)
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Screen dimensions in pixels
+                Text(
+                    text = "Screen Size (px):",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = "${screenWidthPx} x ${screenHeightPx}",
+                    color = Color.White,
+                    fontSize = 11.sp
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Density
+                Text(
+                    text = "Density:",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = "${String.format("%.2f", densityDpi)}x",
+                    color = Color.White,
+                    fontSize = 11.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Reminder to disable
+                Text(
+                    text = "Set SHOW_DEBUG_INFO",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 8.sp
+                )
+                Text(
+                    text = "= false for production",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 8.sp
+                )
+            }
         }
     }
 }

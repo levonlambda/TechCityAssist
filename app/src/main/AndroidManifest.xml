@@ -12,11 +12,21 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TechCityAssist">
 
-        <!-- Main Activity with Splash Screen Theme -->
+        <!--
+        ANDROID 16 OPT-OUT: This property allows the app to maintain fixed orientation
+        despite Android 16's new policy of ignoring screenOrientation attributes.
+        This is a temporary solution - Google recommends eventually supporting all orientations.
+        -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
+
+        <!-- Main Activity with Splash Screen Theme - PORTRAIT ONLY -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.TechCityAssist.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -24,32 +34,36 @@
             </intent-filter>
         </activity>
 
-        <!-- Image Management Activity (Admin) -->
+        <!-- Image Management Activity (Admin) - PORTRAIT ONLY -->
         <activity
             android:name=".ImageManagementActivity"
             android:exported="false"
             android:label="Image Management"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.TechCityAssist" />
 
-        <!-- Phone List Activity -->
+        <!-- Phone List Activity - PORTRAIT ONLY -->
         <activity
             android:name=".PhoneListActivity"
             android:exported="false"
             android:label="Device List"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.TechCityAssist" />
 
-        <!-- Phone Detail Activity -->
+        <!-- Phone Detail Activity - PORTRAIT ONLY -->
         <activity
             android:name=".PhoneDetailActivity"
             android:exported="false"
             android:label="Phone Details"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.TechCityAssist" />
 
-        <!-- Phone Comparison Activity -->
+        <!-- Phone Comparison Activity - PORTRAIT ONLY -->
         <activity
             android:name=".PhoneComparisonActivity"
             android:exported="false"
             android:label="Compare Devices"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.TechCityAssist" />
     </application>
 

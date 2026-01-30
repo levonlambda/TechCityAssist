@@ -23,12 +23,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,14 +67,13 @@ class PhoneDetailActivity : ComponentActivity() {
         const val EXTRA_REFRESH_RATE = "refresh_rate"
         const val EXTRA_WIRED_CHARGING = "wired_charging"
         const val EXTRA_DEVICE_TYPE = "device_type"
-        const val EXTRA_SELECTED_COLOR = "selected_color"  // NEW: Pass selected color from list
+        const val EXTRA_SELECTED_COLOR = "selected_color"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Get the initial phone index and selected color
         val initialIndex = intent.getIntExtra(EXTRA_PHONE_INDEX, 0)
         val initialSelectedColor = intent.getStringExtra(EXTRA_SELECTED_COLOR) ?: ""
 
@@ -88,6 +89,206 @@ class PhoneDetailActivity : ComponentActivity() {
     }
 }
 
+// ============================================
+// RESPONSIVE LAYOUT CONFIGURATION
+// ============================================
+// Your working tablet: 601 x 1007 dp - PRESERVE THIS EXACT LAYOUT
+// Larger tablet: 824 x 1318 dp - SCALE UP FOR THIS
+//
+// Threshold: screen width > 650dp triggers large layout
+// (Using 650dp gives buffer so 601dp device stays on standard layout)
+// ============================================
+
+/**
+ * Configuration for all layout values in PhoneDetailActivity
+ */
+data class DetailLayoutConfig(
+    // Logo
+    val logoHeight: Dp,
+
+    // Model name
+    val modelNameMaxFontSize: TextUnit,
+    val modelNameMinFontSize: TextUnit,
+    val appleLogoSize: Dp,
+
+    // Spacing
+    val logoToModelSpacing: Dp,
+    val modelToContentSpacing: Dp,
+    val horizontalPadding: Dp,
+
+    // Image
+    val imageHeight: Dp,
+    val imageScale: Float,
+
+    // Specs column
+    val specsColumnHeight: Dp,
+
+    // Spec row (icon, label, value)
+    val specIconSize: Dp,
+    val specIconSizeLarge: Dp,  // For screen_size_icon which is slightly bigger
+    val specLabelFontSize: TextUnit,
+    val specValueFontSize: TextUnit,
+    val specRowSpacing: Dp,
+
+    // Color dots
+    val colorDotSizeSelected: Dp,
+    val colorDotSizeUnselected: Dp,
+    val colorNameFontSize: TextUnit,
+    val colorDotsSpacing: Dp,
+
+    // RAM/Storage/Price section
+    val variantChipPaddingH: Dp,
+    val variantChipPaddingV: Dp,
+    val variantChipFontSize: TextUnit,
+    val ramChipMinWidth: Dp,
+    val storageChipMinWidth: Dp,
+    val priceFontSize: TextUnit,
+    val priceEndPadding: Dp,
+    val colorBarWidth: Dp,
+    val colorBarHeight: Dp,
+    val variantRowSpacing: Dp,
+    val variantStartPadding: Dp
+)
+
+/**
+ * Standard layout - your working tablet (601 x 1007 dp)
+ * These are the EXACT values from your current working code - DO NOT CHANGE
+ */
+private fun createStandardLayoutConfig(): DetailLayoutConfig {
+    return DetailLayoutConfig(
+        // Logo - current value
+        logoHeight = 40.dp,
+
+        // Model name - current values
+        modelNameMaxFontSize = 42.sp,
+        modelNameMinFontSize = 24.sp,
+        appleLogoSize = 56.dp,
+
+        // Spacing - current values
+        logoToModelSpacing = 24.dp,
+        modelToContentSpacing = 32.dp,
+        horizontalPadding = 24.dp,
+
+        // Image - current values
+        imageHeight = 418.dp,
+        imageScale = 1.15f,
+
+        // Specs column - current value
+        specsColumnHeight = 478.dp,
+
+        // Spec row - current values
+        specIconSize = 42.dp,
+        specIconSizeLarge = 50.dp,
+        specLabelFontSize = 14.sp,
+        specValueFontSize = 15.sp,
+        specRowSpacing = 14.dp,
+
+        // Color dots - current values
+        colorDotSizeSelected = 28.dp,
+        colorDotSizeUnselected = 22.dp,
+        colorNameFontSize = 14.sp,
+        colorDotsSpacing = 10.dp,
+
+        // RAM/Storage/Price - current values
+        variantChipPaddingH = 12.dp,
+        variantChipPaddingV = 10.dp,
+        variantChipFontSize = 15.sp,
+        ramChipMinWidth = 95.dp,
+        storageChipMinWidth = 140.dp,
+        priceFontSize = 22.sp,
+        priceEndPadding = 72.dp,
+        colorBarWidth = 6.dp,
+        colorBarHeight = 32.dp,
+        variantRowSpacing = 8.dp,
+        variantStartPadding = 32.dp
+    )
+}
+
+/**
+ * Large layout - for screens bigger than 650dp width
+ * Scaled up for your larger tablet (824 x 1318 dp)
+ */
+private fun createLargeLayoutConfig(): DetailLayoutConfig {
+    return DetailLayoutConfig(
+        // Logo - A LOT BIGGER (50% increase)
+        logoHeight = 60.dp,
+
+        // Model name - BIGGER (increased by ~25%)
+        modelNameMaxFontSize = 54.sp,
+        modelNameMinFontSize = 30.sp,
+        appleLogoSize = 72.dp,
+
+        // Spacing - INCREASED GAPS
+        logoToModelSpacing = 36.dp,
+        modelToContentSpacing = 48.dp,
+        horizontalPadding = 32.dp,
+
+        // Image - 25% BIGGER (418 * 1.25 = 522.5)
+        imageHeight = 522.dp,
+        imageScale = 1.15f,
+
+        // Specs column - proportionally bigger (478 * 1.25 = 597.5)
+        specsColumnHeight = 598.dp,
+
+        // Spec row - INCREASED (icons, labels, values ~20-25% bigger)
+        specIconSize = 52.dp,
+        specIconSizeLarge = 62.dp,
+        specLabelFontSize = 17.sp,
+        specValueFontSize = 19.sp,
+        specRowSpacing = 18.dp,
+
+        // Color dots - proportionally bigger
+        colorDotSizeSelected = 36.dp,
+        colorDotSizeUnselected = 28.dp,
+        colorNameFontSize = 17.sp,
+        colorDotsSpacing = 14.dp,
+
+        // RAM/Storage/Price - INCREASED FONT SIZES
+        variantChipPaddingH = 16.dp,
+        variantChipPaddingV = 14.dp,
+        variantChipFontSize = 19.sp,
+        ramChipMinWidth = 120.dp,
+        storageChipMinWidth = 175.dp,
+        priceFontSize = 28.sp,
+        priceEndPadding = 90.dp,
+        colorBarWidth = 8.dp,
+        colorBarHeight = 40.dp,
+        variantRowSpacing = 12.dp,
+        variantStartPadding = 40.dp
+    )
+}
+
+/**
+ * Get the appropriate layout config based on screen size
+ *
+ * PRESERVES standard layout for screens <= 650dp width
+ * (Your working 601dp tablet will use standard layout)
+ *
+ * USES large layout for screens > 650dp width
+ * (Your 824dp tablet will use large layout)
+ */
+@Composable
+fun rememberDetailLayoutConfig(): DetailLayoutConfig {
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+
+    return remember(screenWidthDp) {
+        if (screenWidthDp > 650) {
+            // Larger screen (824dp tablet) - use scaled up layout
+            Log.d("PhoneDetail", "Using LARGE layout for screen width: ${screenWidthDp}dp")
+            createLargeLayoutConfig()
+        } else {
+            // Standard screen (601dp tablet) - preserve exact layout
+            Log.d("PhoneDetail", "Using STANDARD layout for screen width: ${screenWidthDp}dp")
+            createStandardLayoutConfig()
+        }
+    }
+}
+
+// ============================================
+// END RESPONSIVE CONFIGURATION
+// ============================================
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhoneDetailScreen(
@@ -95,11 +296,9 @@ fun PhoneDetailScreen(
     initialSelectedColor: String = "",
     onBackPress: () -> Unit
 ) {
-    // Get the unique phone models (one per manufacturer+model) from the holder
     val phones = PhoneListHolder.uniquePhoneModels
     val phoneImagesMapHolder = PhoneListHolder.phoneImagesMap
 
-    // Handle empty list case
     if (phones.isEmpty()) {
         Box(
             modifier = Modifier
@@ -112,7 +311,6 @@ fun PhoneDetailScreen(
         return
     }
 
-    // Pager state for swiping between phones
     val phonePagerState = rememberPagerState(
         initialPage = initialIndex.coerceIn(0, phones.size - 1),
         pageCount = { phones.size }
@@ -128,7 +326,6 @@ fun PhoneDetailScreen(
         val phone = phones[page]
         val initialPhoneImages = phoneImagesMapHolder[phone.phoneDocId]
 
-        // Only pass initialSelectedColor for the first page (the one user clicked)
         val colorForThisPage = if (page == initialIndex) initialSelectedColor else ""
 
         PhoneDetailContent(
@@ -149,21 +346,19 @@ fun PhoneDetailContent(
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
 
-    // State for phone images - use initial if available, fetch if not
+    // Get responsive layout configuration based on screen size
+    val layoutConfig = rememberDetailLayoutConfig()
+
     var phoneImages by remember(phone.phoneDocId) { mutableStateOf(initialPhoneImages) }
     var isLoadingImages by remember(phone.phoneDocId) { mutableStateOf(initialPhoneImages == null) }
 
-    // State for all variants (RAM/Storage/Price configurations)
     var variants by remember(phone.phoneDocId) { mutableStateOf<List<PhoneVariant>>(emptyList()) }
     var isLoadingVariants by remember(phone.phoneDocId) { mutableStateOf(true) }
 
-    // State for all unique colors across all variants
     var allAvailableColors by remember(phone.phoneDocId) { mutableStateOf(phone.colors) }
 
-    // State for tracking which colors are available for each variant
     var variantColorsMap by remember(phone.phoneDocId) { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
 
-    // Track selected color by NAME (not index) - initialized from intent or first color
     var selectedColorName by remember(phone.phoneDocId) {
         mutableStateOf(
             if (initialSelectedColor.isNotEmpty()) initialSelectedColor
@@ -171,13 +366,11 @@ fun PhoneDetailContent(
         )
     }
 
-    // Derive the index from the name (recalculates when allAvailableColors changes)
     val selectedColorIndex = remember(allAvailableColors, selectedColorName) {
         val index = allAvailableColors.indexOfFirst { it.equals(selectedColorName, ignoreCase = true) }
         if (index >= 0) index else 0
     }
 
-    // Fetch phone images if not already available
     LaunchedEffect(phone.phoneDocId) {
         if (phone.phoneDocId.isNotEmpty() && phoneImages == null) {
             try {
@@ -195,7 +388,6 @@ fun PhoneDetailContent(
         }
     }
 
-    // Fetch all variants for this phone model
     LaunchedEffect(phone.manufacturer, phone.model) {
         if (phone.manufacturer.isNotEmpty() && phone.model.isNotEmpty()) {
             try {
@@ -207,7 +399,6 @@ fun PhoneDetailContent(
                     .get()
                     .await()
 
-                // Group by RAM and Storage to get unique variants
                 val variantMap = mutableMapOf<String, PhoneVariant>()
                 val allColors = mutableSetOf<String>()
                 val variantColorsTemp = mutableMapOf<String, MutableSet<String>>()
@@ -219,14 +410,12 @@ fun PhoneDetailContent(
                     val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
                     val color = doc.getString("color") ?: ""
 
-                    // Collect all unique colors
                     if (color.isNotEmpty()) {
                         allColors.add(color)
                     }
 
                     val key = "$ram|$storage"
 
-                    // Track colors for each variant
                     if (color.isNotEmpty()) {
                         variantColorsTemp.getOrPut(key) { mutableSetOf() }.add(color)
                     }
@@ -241,10 +430,8 @@ fun PhoneDetailContent(
                     }
                 }
 
-                // Sort by price
                 variants = variantMap.values.sortedBy { it.retailPrice }
 
-                // Update allAvailableColors - preserve order from phone.colors, add any new colors at end
                 val orderedColors = phone.colors.toMutableList()
                 allColors.forEach { color ->
                     if (!orderedColors.any { it.equals(color, ignoreCase = true) }) {
@@ -253,13 +440,11 @@ fun PhoneDetailContent(
                 }
                 allAvailableColors = orderedColors
 
-                // Update variantColorsMap (keep same order as allAvailableColors)
                 variantColorsMap = variantColorsTemp.mapValues { (_, colors) ->
                     orderedColors.filter { ordered -> colors.any { it.equals(ordered, ignoreCase = true) } }
                 }
             } catch (e: Exception) {
                 Log.e("PhoneDetail", "Error fetching variants", e)
-                // Fall back to the single variant passed in
                 variants = listOf(
                     PhoneVariant(
                         ram = phone.ram,
@@ -275,12 +460,10 @@ fun PhoneDetailContent(
         isLoadingVariants = false
     }
 
-    // Get current color and image URL based on selected color name
     val currentColor = selectedColorName.ifEmpty { allAvailableColors.firstOrNull() ?: "" }
     val colorImages = phoneImages?.getImagesForColor(currentColor)
     val imageUrl = colorImages?.highRes?.ifEmpty { colorImages.lowRes } ?: colorImages?.lowRes
 
-    // Format display name
     val displayName = remember(phone.manufacturer, phone.model) {
         if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
             formatModelNameDetail(phone.model)
@@ -293,9 +476,9 @@ fun PhoneDetailContent(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = layoutConfig.horizontalPadding)
     ) {
-        // TechCity logo at top center
+        // TechCity logo at top center - USES CONFIG
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -305,15 +488,15 @@ fun PhoneDetailContent(
             Image(
                 painter = painterResource(id = R.drawable.tc_logo_flat_colored),
                 contentDescription = "TechCity Logo",
-                modifier = Modifier.height(40.dp),
+                modifier = Modifier.height(layoutConfig.logoHeight),
                 contentScale = ContentScale.FillHeight
             )
         }
 
-        // Spacer between logo and model name
-        Spacer(modifier = Modifier.height(24.dp))
+        // Spacer between logo and model name - USES CONFIG
+        Spacer(modifier = Modifier.height(layoutConfig.logoToModelSpacing))
 
-        // Model name centered at top - large and bold like reference
+        // Model name centered at top - USES CONFIG
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -325,21 +508,21 @@ fun PhoneDetailContent(
                 Image(
                     painter = painterResource(id = R.drawable.apple_logo),
                     contentDescription = "Apple logo",
-                    modifier = Modifier.size(56.dp)
+                    modifier = Modifier.size(layoutConfig.appleLogoSize)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
             AutoSizeTextDetail(
                 text = displayName,
-                maxFontSize = 42.sp,
-                minFontSize = 24.sp,
+                maxFontSize = layoutConfig.modelNameMaxFontSize,
+                minFontSize = layoutConfig.modelNameMinFontSize,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF1A1A1A)
             )
         }
 
-        // Added spacer between model name and image
-        Spacer(modifier = Modifier.height(32.dp))
+        // Spacer between model name and content - USES CONFIG (INCREASED GAP)
+        Spacer(modifier = Modifier.height(layoutConfig.modelToContentSpacing))
 
         // Main content - Phone image and specs
         Row(
@@ -348,17 +531,17 @@ fun PhoneDetailContent(
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.Top
         ) {
-            // Left side - Phone Image (much larger) with color dots right below
+            // Left side - Phone Image with color dots
             Column(
                 modifier = Modifier
                     .weight(1.8f),
                 horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.Top
             ) {
-                // Phone image with swipe - large, image scaled to crop whitespace
+                // Phone image - USES CONFIG (25% BIGGER for large screens)
                 Box(
                     modifier = Modifier
-                        .height(418.dp)
+                        .height(layoutConfig.imageHeight)
                         .fillMaxWidth(0.85f)
                         .clip(RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
@@ -366,8 +549,6 @@ fun PhoneDetailContent(
                     if (isLoadingImages) {
                         CircularProgressIndicator()
                     } else if (isLoadingVariants) {
-                        // LOADING STATE: Show static image of selected color while variants load
-                        // This prevents the pager from being created with wrong initial position
                         val colorImagesStatic = phoneImages?.getImagesForColor(selectedColorName)
                         val imageUrlStatic = colorImagesStatic?.highRes?.ifEmpty { colorImagesStatic.lowRes } ?: colorImagesStatic?.lowRes
 
@@ -387,8 +568,8 @@ fun PhoneDetailContent(
                                 modifier = Modifier
                                     .fillMaxHeight()
                                     .graphicsLayer {
-                                        scaleX = 1.15f
-                                        scaleY = 1.15f
+                                        scaleX = layoutConfig.imageScale
+                                        scaleY = layoutConfig.imageScale
                                     },
                                 contentScale = ContentScale.FillHeight
                             )
@@ -400,7 +581,6 @@ fun PhoneDetailContent(
                             )
                         }
                     } else if (allAvailableColors.isNotEmpty()) {
-                        // READY STATE: Now create pager with correct initial position
                         val colorCount = allAvailableColors.size
                         val infinitePageCount = if (colorCount > 1) 10000 else 1
                         val startPage = if (colorCount > 1) {
@@ -414,12 +594,10 @@ fun PhoneDetailContent(
                             pageCount = { infinitePageCount }
                         )
 
-                        // Get actual color index from page (for infinite scroll)
                         fun getActualColorIndex(page: Int): Int {
                             return if (colorCount > 0) page % colorCount else 0
                         }
 
-                        // Sync selectedColorName when user swipes
                         LaunchedEffect(pagerState.settledPage) {
                             val newIndex = getActualColorIndex(pagerState.settledPage)
                             val newColorName = allAvailableColors.getOrNull(newIndex) ?: ""
@@ -428,7 +606,6 @@ fun PhoneDetailContent(
                             }
                         }
 
-                        // Sync pager when user clicks on color swatch
                         LaunchedEffect(selectedColorIndex) {
                             val currentPagerIndex = getActualColorIndex(pagerState.currentPage)
                             if (currentPagerIndex != selectedColorIndex && colorCount > 0) {
@@ -451,7 +628,6 @@ fun PhoneDetailContent(
                             val imageUrlForPage = colorImagesForPage?.highRes?.ifEmpty { colorImagesForPage.lowRes } ?: colorImagesForPage?.lowRes
 
                             if (imageUrlForPage != null) {
-                                // Check for cached image first
                                 val isHighRes = colorImagesForPage?.lowRes.isNullOrEmpty() == true
                                 val cachedPath = ImageCacheManager.getLocalImageUri(
                                     context, phone.phoneDocId, colorName, isHighRes
@@ -467,8 +643,8 @@ fun PhoneDetailContent(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .graphicsLayer {
-                                            scaleX = 1.15f
-                                            scaleY = 1.15f
+                                            scaleX = layoutConfig.imageScale
+                                            scaleY = layoutConfig.imageScale
                                         },
                                     contentScale = ContentScale.FillHeight
                                 )
@@ -489,7 +665,7 @@ fun PhoneDetailContent(
                     }
                 }
 
-                // Color name and swatches centered to phone image width
+                // Color name and swatches - USES CONFIG
                 Box(
                     modifier = Modifier.fillMaxWidth(0.85f),
                     contentAlignment = Alignment.Center
@@ -497,22 +673,20 @@ fun PhoneDetailContent(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Color name below image
                         if (currentColor.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = currentColor,
-                                fontSize = 14.sp,
+                                fontSize = layoutConfig.colorNameFontSize,
                                 fontWeight = FontWeight.Medium,
                                 color = Color(0xFF555555)
                             )
                         }
 
-                        // Color dots right below color name - show all unique colors
                         if (allAvailableColors.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(layoutConfig.colorDotsSpacing),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 allAvailableColors.forEachIndexed { index, colorName ->
@@ -523,6 +697,8 @@ fun PhoneDetailContent(
                                         colorName = colorName,
                                         hexColor = hexColor,
                                         isSelected = isSelected,
+                                        selectedSize = layoutConfig.colorDotSizeSelected,
+                                        unselectedSize = layoutConfig.colorDotSizeUnselected,
                                         onClick = { selectedColorName = colorName }
                                     )
                                 }
@@ -532,196 +708,191 @@ fun PhoneDetailContent(
                 }
             }
 
-            // Right side - Specs list
+            // Right side - Specs list - USES CONFIG
             Column(
                 modifier = Modifier
                     .weight(1.1f)
-                    .height(478.dp)
+                    .height(layoutConfig.specsColumnHeight)
                     .offset(x = (-10).dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Check if this is a laptop
                 val isLaptop = phone.deviceType.equals("laptop", ignoreCase = true)
 
                 if (isLaptop) {
-                    // LAPTOP SPECS: Display Size, Resolution, Refresh Rate, CPU, GPU, Battery, OS
-                    // Always show all specs for laptops, display N/A if empty
-
-                    // 1. Display size
+                    // LAPTOP SPECS
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.screen_size_icon,
                         label = "Display Size",
                         value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} inches" else "N/A",
                         isSvg = false,
-                        iconSize = 50,
+                        layoutConfig = layoutConfig,
+                        iconSize = layoutConfig.specIconSizeLarge,
                         iconOffsetX = -4,
                         textStartOffset = -8
                     )
 
-                    // 2. Resolution
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.resolution_icon,
                         label = "Resolution",
                         value = phone.resolution.ifEmpty { "N/A" },
-                        isSvg = false
+                        isSvg = false,
+                        layoutConfig = layoutConfig
                     )
 
-                    // 3. Refresh rate
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.refresh_rate_icon,
                         label = "Refresh Rate",
                         value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A",
-                        isSvg = false
+                        isSvg = false,
+                        layoutConfig = layoutConfig
                     )
 
-                    // 4. CPU
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.chipset_icon,
                         label = "CPU",
                         value = phone.cpu.ifEmpty { "N/A" },
-                        isSvg = false
+                        isSvg = false,
+                        layoutConfig = layoutConfig
                     )
 
-                    // 5. GPU
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.gpu_icon,
                         label = "GPU",
                         value = phone.gpu.ifEmpty { "N/A" },
-                        isSvg = false
+                        isSvg = false,
+                        layoutConfig = layoutConfig
                     )
 
-                    // 6. Battery
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.battery_icon,
                         label = "Battery",
                         value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A",
-                        isSvg = false
+                        isSvg = false,
+                        layoutConfig = layoutConfig
                     )
 
-                    // 7. OS
                     DetailSpecRowMultiLine(
                         iconRes = R.raw.os_icon,
                         label = "OS",
                         value = phone.os.ifEmpty { "N/A" },
-                        isSvg = false
+                        isSvg = false,
+                        layoutConfig = layoutConfig
                     )
 
                 } else {
-                    // PHONE/TABLET SPECS: Display Size, Resolution, Refresh Rate, Front Camera, Rear Camera, Chipset, Battery, Charging, OS, Network
-
-                    // 1. Display size
+                    // PHONE/TABLET SPECS
                     if (phone.displaySize.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.screen_size_icon,
                             label = "Display Size",
                             value = "${phone.displaySize} inches",
                             isSvg = false,
-                            iconSize = 50,
+                            layoutConfig = layoutConfig,
+                            iconSize = layoutConfig.specIconSizeLarge,
                             iconOffsetX = -4,
                             textStartOffset = -8
                         )
                     }
 
-                    // 2. Resolution
                     if (phone.resolution.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.resolution_icon,
                             label = "Resolution",
                             value = phone.resolution,
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 3. Refresh rate
                     if (phone.refreshRate > 0) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.refresh_rate_icon,
                             label = "Refresh Rate",
                             value = "${phone.refreshRate} Hz",
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 4. Front Camera
                     if (phone.frontCamera.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.camera_icon,
                             label = "Front Camera",
                             value = phone.frontCamera,
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 5. Rear Camera
                     if (phone.rearCamera.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.rear_camera_icon,
                             label = "Rear Camera",
                             value = phone.rearCamera,
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 6. Chipset
                     if (phone.chipset.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.chipset_icon,
                             label = "Chipset",
                             value = phone.chipset,
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 7. Battery
                     if (phone.batteryCapacity > 0) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.battery_icon,
                             label = "Battery",
                             value = "${formatter.format(phone.batteryCapacity)} mAh",
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 8. Charging
                     if (phone.wiredCharging > 0) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.charging_icon,
                             label = "Charging",
                             value = "${phone.wiredCharging}W fast charging",
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 9. OS
                     if (phone.os.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.os_icon,
                             label = "OS",
                             value = phone.os,
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
 
-                    // 10. Network
                     if (phone.network.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.network_icon,
                             label = "Network",
                             value = phone.network,
-                            isSvg = false
+                            isSvg = false,
+                            layoutConfig = layoutConfig
                         )
                     }
                 }
             }
         }
 
-        // RAM/Storage/Price variants - FULL WIDTH, below main content
+        // RAM/Storage/Price variants - USES CONFIG
         Spacer(modifier = Modifier.height(10.dp))
 
         if (isLoadingVariants) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
         } else {
-            // Centered container - variants grow from center
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -730,14 +901,13 @@ fun PhoneDetailContent(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(layoutConfig.variantRowSpacing)
                 ) {
                     variants.forEach { variant ->
                         val variantKey = "${variant.ram}|${variant.storage}"
                         val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
                         val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
 
-                        // Get the color for the bar
                         val barColor = if (isAvailableInSelectedColor) {
                             val hexColor = phoneImages?.getHexColorForColor(currentColor) ?: ""
                             if (hexColor.isNotEmpty()) {
@@ -753,19 +923,19 @@ fun PhoneDetailContent(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Chips container
+                            // Chips container - USES CONFIG
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(start = 32.dp),
+                                    .padding(start = layoutConfig.variantStartPadding),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // RAM chip - always active looking
+                                // RAM chip - USES CONFIG
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = Color.White,
                                     modifier = Modifier
-                                        .widthIn(min = 95.dp)
+                                        .widthIn(min = layoutConfig.ramChipMinWidth)
                                         .border(
                                             1.dp,
                                             Color(0xFFE0E0E0),
@@ -774,8 +944,11 @@ fun PhoneDetailContent(
                                 ) {
                                     Text(
                                         text = "${variant.ram}GB RAM",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                        fontSize = 15.sp,
+                                        modifier = Modifier.padding(
+                                            horizontal = layoutConfig.variantChipPaddingH,
+                                            vertical = layoutConfig.variantChipPaddingV
+                                        ),
+                                        fontSize = layoutConfig.variantChipFontSize,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF333333),
                                         textAlign = TextAlign.Center
@@ -784,12 +957,12 @@ fun PhoneDetailContent(
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                // Storage chip - always active looking
+                                // Storage chip - USES CONFIG
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = Color.White,
                                     modifier = Modifier
-                                        .widthIn(min = 140.dp)
+                                        .widthIn(min = layoutConfig.storageChipMinWidth)
                                         .border(
                                             1.dp,
                                             Color(0xFFE0E0E0),
@@ -798,20 +971,23 @@ fun PhoneDetailContent(
                                 ) {
                                     Text(
                                         text = "${variant.storage}GB Storage",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                        fontSize = 15.sp,
+                                        modifier = Modifier.padding(
+                                            horizontal = layoutConfig.variantChipPaddingH,
+                                            vertical = layoutConfig.variantChipPaddingV
+                                        ),
+                                        fontSize = layoutConfig.variantChipFontSize,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF333333),
                                         textAlign = TextAlign.Center
                                     )
                                 }
 
-                                // Color availability bar - right after Storage chip
+                                // Color availability bar - USES CONFIG
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Box(
                                     modifier = Modifier
-                                        .width(6.dp)
-                                        .height(32.dp)
+                                        .width(layoutConfig.colorBarWidth)
+                                        .height(layoutConfig.colorBarHeight)
                                         .clip(RoundedCornerShape(3.dp))
                                         .background(barColor)
                                         .then(
@@ -824,13 +1000,13 @@ fun PhoneDetailContent(
                                 )
                             }
 
-                            // Price - always active looking
+                            // Price - USES CONFIG (BIGGER FONT for large screens)
                             Text(
                                 text = "₱${String.format("%,.2f", variant.retailPrice)}",
-                                fontSize = 22.sp,
+                                fontSize = layoutConfig.priceFontSize,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFDB2E2E),
-                                modifier = Modifier.padding(end = 72.dp)
+                                modifier = Modifier.padding(end = layoutConfig.priceEndPadding)
                             )
                         }
                     }
@@ -844,7 +1020,8 @@ fun PhoneDetailContent(
 fun DetailSpecRow(
     iconRes: Int,
     text: String,
-    isSvg: Boolean = true
+    isSvg: Boolean = true,
+    layoutConfig: DetailLayoutConfig
 ) {
     val context = LocalContext.current
 
@@ -853,7 +1030,6 @@ fun DetailSpecRow(
         modifier = Modifier.padding(vertical = 0.dp)
     ) {
         if (isSvg) {
-            // For SVG icons in raw folder
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(iconRes)
@@ -861,17 +1037,16 @@ fun DetailSpecRow(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(layoutConfig.specIconSize)
             )
         } else {
-            // For PNG icons in raw folder
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(iconRes)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(layoutConfig.specIconSize)
             )
         }
 
@@ -879,7 +1054,7 @@ fun DetailSpecRow(
 
         Text(
             text = text,
-            fontSize = 15.sp,
+            fontSize = layoutConfig.specValueFontSize,
             fontWeight = FontWeight.Medium,
             color = Color(0xFF222222),
             lineHeight = 18.sp
@@ -893,7 +1068,8 @@ fun DetailSpecRowMultiLine(
     label: String,
     value: String,
     isSvg: Boolean = true,
-    iconSize: Int = 42,
+    layoutConfig: DetailLayoutConfig,
+    iconSize: Dp = layoutConfig.specIconSize,
     iconOffsetX: Int = 0,
     textStartOffset: Int = 0
 ) {
@@ -904,7 +1080,6 @@ fun DetailSpecRowMultiLine(
         modifier = Modifier.padding(vertical = 0.dp)
     ) {
         if (isSvg) {
-            // For SVG icons in raw folder
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(iconRes)
@@ -913,11 +1088,10 @@ fun DetailSpecRowMultiLine(
                     .build(),
                 contentDescription = null,
                 modifier = Modifier
-                    .size(iconSize.dp)
+                    .size(iconSize)
                     .offset(x = iconOffsetX.dp)
             )
         } else {
-            // For PNG icons in raw folder
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(iconRes)
@@ -925,17 +1099,17 @@ fun DetailSpecRowMultiLine(
                     .build(),
                 contentDescription = null,
                 modifier = Modifier
-                    .size(iconSize.dp)
+                    .size(iconSize)
                     .offset(x = iconOffsetX.dp)
             )
         }
 
-        Spacer(modifier = Modifier.width((14 + textStartOffset).dp))
+        Spacer(modifier = Modifier.width((layoutConfig.specRowSpacing.value.toInt() + textStartOffset).dp))
 
         Column {
             Text(
                 text = label,
-                fontSize = 14.sp,
+                fontSize = layoutConfig.specLabelFontSize,
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF888888),
                 lineHeight = 16.sp
@@ -943,7 +1117,7 @@ fun DetailSpecRowMultiLine(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = value,
-                fontSize = 15.sp,
+                fontSize = layoutConfig.specValueFontSize,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF222222),
                 lineHeight = 18.sp
@@ -957,6 +1131,8 @@ fun DetailColorDot(
     colorName: String,
     hexColor: String = "",
     isSelected: Boolean = false,
+    selectedSize: Dp = 28.dp,
+    unselectedSize: Dp = 22.dp,
     onClick: () -> Unit
 ) {
     val backgroundColor = remember(hexColor, colorName) {
@@ -979,7 +1155,7 @@ fun DetailColorDot(
 
     Surface(
         modifier = Modifier
-            .size(if (isSelected) 28.dp else 22.dp)
+            .size(if (isSelected) selectedSize else unselectedSize)
             .border(
                 width = 1.dp,
                 color = Color(0xFFDDDDDD),
@@ -992,7 +1168,7 @@ fun DetailColorDot(
 }
 
 /**
- * Auto-sizing text that shrinks font size to fit on a single line (for PhoneDetailActivity)
+ * Auto-sizing text that shrinks font size to fit on a single line
  */
 @Composable
 fun AutoSizeTextDetail(
@@ -1020,7 +1196,6 @@ fun AutoSizeTextDetail(
         overflow = TextOverflow.Clip,
         onTextLayout = { textLayoutResult ->
             if (textLayoutResult.didOverflowWidth && fontSize > minFontSize) {
-                // Reduce font size by 1sp and try again
                 fontSize = (fontSize.value - 1f).sp
             } else {
                 readyToDraw = true
@@ -1038,7 +1213,6 @@ fun StoragePriceTable(
     Column(
         modifier = Modifier.fillMaxWidth()
     ) {
-        // Header row
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1062,7 +1236,6 @@ fun StoragePriceTable(
             )
         }
 
-        // Divider
         HorizontalDivider(
             color = Color(0xFFDDDDDD),
             thickness = 1.dp
@@ -1070,7 +1243,6 @@ fun StoragePriceTable(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Data row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1094,7 +1266,7 @@ fun StoragePriceTable(
     }
 }
 
-// Utility function to get color from name (private to avoid conflict with MainActivity)
+// Utility functions
 private fun getColorFromNameDetail(colorName: String): Color {
     return when (colorName.lowercase()) {
         "black" -> Color.Black
@@ -1119,7 +1291,6 @@ private fun getColorFromNameDetail(colorName: String): Color {
     }
 }
 
-// Utility function to parse hex color string (private to avoid conflict)
 private fun parseHexColorDetail(hex: String): Color {
     return try {
         val cleanHex = hex.removePrefix("#")
@@ -1144,7 +1315,6 @@ private fun parseHexColorDetail(hex: String): Color {
     }
 }
 
-// Utility function to format model name (private to avoid conflict with MainActivity)
 private fun formatModelNameDetail(model: String): String {
     return model
         .replace("Iphone", "iPhone", ignoreCase = true)
@@ -1152,7 +1322,6 @@ private fun formatModelNameDetail(model: String): String {
         .replace("(refurbished)", "*", ignoreCase = true)
 }
 
-// Parse phone images document from Firestore (private to avoid conflict with MainActivity)
 @Suppress("UNCHECKED_CAST")
 private fun parsePhoneImagesDocumentDetail(docId: String, data: Map<String, Any>?): PhoneImages? {
     if (data == null) return null

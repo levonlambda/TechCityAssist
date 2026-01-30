@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -144,34 +146,197 @@ class PhoneComparisonActivity : ComponentActivity() {
     }
 }
 
+// ============================================
+// RESPONSIVE LAYOUT CONFIGURATION
+// ============================================
+// Your working tablet: 601 x 1007 dp - PRESERVE THIS EXACT LAYOUT
+// Larger tablet: 824 x 1318 dp - SCALE UP FOR THIS
+//
+// Threshold: screen width > 650dp triggers large layout
+// ============================================
+
+/**
+ * Configuration for all layout values in PhoneComparisonActivity
+ */
+data class ComparisonLayoutConfig(
+    // Logo
+    val logoHeight: Dp,
+
+    // Model name
+    val modelNameFontSize: TextUnit,
+    val appleLogoSize: Dp,
+
+    // Spacing
+    val topPadding: Dp,
+    val logoToModelSpacing: Dp,
+    val modelToContentSpacing: Dp,
+    val horizontalPadding: Dp,
+
+    // Phone image
+    val imageHeight: Dp,
+    val imageScale: Float,
+    val imageYOffset: Dp,
+
+    // Color dots
+    val colorDotSizeSelected: Dp,
+    val colorDotSizeUnselected: Dp,
+    val colorNameFontSize: TextUnit,
+
+    // Spec row
+    val specIconSize: Dp,
+    val specLabelFontSize: TextUnit,
+    val specValueFontSize: TextUnit,
+    val specRowPadding: Dp,
+    val arrowSize: Dp,
+
+    // Price
+    val priceFontSize: TextUnit,
+    val priceBottomSpacing: Dp,
+
+    // Column padding
+    val leftColumnStartPadding: Dp,
+    val leftColumnEndPadding: Dp,
+    val rightColumnStartPadding: Dp,
+    val rightColumnEndPadding: Dp
+)
+
+/**
+ * Standard layout - your working tablet (601 x 1007 dp)
+ * These are the EXACT values from your current working code - DO NOT CHANGE
+ */
+private fun createStandardComparisonLayoutConfig(): ComparisonLayoutConfig {
+    return ComparisonLayoutConfig(
+        // Logo - current value
+        logoHeight = 36.dp,
+
+        // Model name - current values
+        modelNameFontSize = 26.sp,
+        appleLogoSize = 32.dp,
+
+        // Spacing - current values
+        topPadding = 50.dp,
+        logoToModelSpacing = 16.dp,
+        modelToContentSpacing = 16.dp,
+        horizontalPadding = 16.dp,
+
+        // Phone image - current values
+        imageHeight = 500.dp,
+        imageScale = 1.15f,
+        imageYOffset = (-40).dp,
+
+        // Color dots - current values
+        colorDotSizeSelected = 24.dp,
+        colorDotSizeUnselected = 18.dp,
+        colorNameFontSize = 14.sp,
+
+        // Spec row - current values
+        specIconSize = 42.dp,
+        specLabelFontSize = 14.sp,
+        specValueFontSize = 15.sp,
+        specRowPadding = 6.dp,
+        arrowSize = 32.dp,
+
+        // Price - current values
+        priceFontSize = 28.sp,
+        priceBottomSpacing = 60.dp,
+
+        // Column padding - current values
+        leftColumnStartPadding = 48.dp,
+        leftColumnEndPadding = 0.dp,
+        rightColumnStartPadding = 0.dp,
+        rightColumnEndPadding = 48.dp
+    )
+}
+
+/**
+ * Large layout - for screens bigger than 650dp width
+ * Scaled up for your larger tablet (824 x 1318 dp)
+ */
+private fun createLargeComparisonLayoutConfig(): ComparisonLayoutConfig {
+    return ComparisonLayoutConfig(
+        // Logo - A LOT BIGGER (50% increase)
+        logoHeight = 54.dp,
+
+        // Model name - BIGGER (~25% increase)
+        modelNameFontSize = 32.sp,
+        appleLogoSize = 40.dp,
+
+        // Spacing - INCREASED GAPS
+        topPadding = 60.dp,
+        logoToModelSpacing = 24.dp,
+        modelToContentSpacing = 24.dp,
+        horizontalPadding = 24.dp,
+
+        // Phone image - 25% BIGGER (500 * 1.25 = 625)
+        imageHeight = 625.dp,
+        imageScale = 1.15f,
+        imageYOffset = (-50).dp,
+
+        // Color dots - proportionally bigger
+        colorDotSizeSelected = 30.dp,
+        colorDotSizeUnselected = 22.dp,
+        colorNameFontSize = 17.sp,
+
+        // Spec row - INCREASED (~20-25% bigger)
+        specIconSize = 52.dp,
+        specLabelFontSize = 17.sp,
+        specValueFontSize = 19.sp,
+        specRowPadding = 8.dp,
+        arrowSize = 40.dp,
+
+        // Price - BIGGER (~25% increase)
+        priceFontSize = 35.sp,
+        priceBottomSpacing = 75.dp,
+
+        // Column padding - proportionally increased
+        leftColumnStartPadding = 60.dp,
+        leftColumnEndPadding = 0.dp,
+        rightColumnStartPadding = 0.dp,
+        rightColumnEndPadding = 60.dp
+    )
+}
+
+/**
+ * Get the appropriate layout config based on screen size
+ */
+@Composable
+fun rememberComparisonLayoutConfig(): ComparisonLayoutConfig {
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+
+    return remember(screenWidthDp) {
+        if (screenWidthDp > 650) {
+            Log.d("PhoneComparison", "Using LARGE layout for screen width: ${screenWidthDp}dp")
+            createLargeComparisonLayoutConfig()
+        } else {
+            Log.d("PhoneComparison", "Using STANDARD layout for screen width: ${screenWidthDp}dp")
+            createStandardComparisonLayoutConfig()
+        }
+    }
+}
+
+// ============================================
+// END RESPONSIVE CONFIGURATION
+// ============================================
+
 /**
  * Spec comparison result: positive = phone1 is higher, negative = phone2 is higher, 0 = equal
  */
 data class SpecComparisonResults(
-    val comparisons: Map<String, Int> = emptyMap()  // spec name -> comparison result
+    val comparisons: Map<String, Int> = emptyMap()
 ) {
     fun getResult(specName: String): Int = comparisons[specName] ?: 0
     fun isDifferent(specName: String): Boolean = comparisons[specName] != 0
 }
 
-/**
- * Extract decimal number from display size string
- * "6.7 inches" -> 6.7, "6.7" -> 6.7
- */
 private fun extractDisplaySize(spec: String): Double? {
     if (spec == "N/A" || spec.isEmpty()) return null
-    // Match decimal number pattern (e.g., 6.7, 10.5)
     val match = Regex("""(\d+\.\d+|\d+)""").find(spec)
     return match?.value?.toDoubleOrNull()
 }
 
-/**
- * Extract and multiply resolution dimensions
- * "1080 x 2400" or "1080x2400" or "1080 X 2400" -> 1080 * 2400 = 2592000
- */
 private fun extractResolutionPixels(spec: String): Long? {
     if (spec == "N/A" || spec.isEmpty()) return null
-    // Match pattern: number x number (case insensitive x, optional spaces)
     val match = Regex("""(\d+)\s*[xX]\s*(\d+)""").find(spec)
     return if (match != null) {
         val width = match.groupValues[1].toLongOrNull() ?: return null
@@ -180,33 +345,19 @@ private fun extractResolutionPixels(spec: String): Long? {
     } else null
 }
 
-/**
- * Extract and sum all MP values from camera spec (Option A)
- * "12MP + 50MP + 8MP" -> 12 + 50 + 8 = 70
- * "50MP" -> 50
- */
 private fun extractCameraMP(spec: String): Int? {
     if (spec == "N/A" || spec.isEmpty()) return null
-    // Find all numbers followed by MP (case insensitive)
     val matches = Regex("""(\d+)\s*MP""", RegexOption.IGNORE_CASE).findAll(spec)
     val values = matches.map { it.groupValues[1].toIntOrNull() ?: 0 }.toList()
     return if (values.isNotEmpty()) values.sum() else null
 }
 
-/**
- * Extract network generation number
- * "5G" -> 5, "4G" -> 4
- */
 private fun extractNetworkGeneration(spec: String): Int? {
     if (spec == "N/A" || spec.isEmpty()) return null
     val match = Regex("""(\d+)\s*G""", RegexOption.IGNORE_CASE).find(spec)
     return match?.groupValues?.get(1)?.toIntOrNull()
 }
 
-/**
- * Extract number from string, handling commas
- * "1,024" -> 1024, "256" -> 256
- */
 private fun extractNumberWithCommas(spec: String): Int? {
     if (spec == "N/A" || spec.isEmpty()) return null
     val cleanSpec = spec.replace(",", "")
@@ -214,80 +365,60 @@ private fun extractNumberWithCommas(spec: String): Int? {
     return match?.value?.toIntOrNull()
 }
 
-/**
- * Generic comparison helper
- * Returns: 1 if value1 > value2, -1 if value1 < value2, 0 if equal or both null
- */
 private fun <T : Comparable<T>> compareValues(value1: T?, value2: T?): Int {
     return when {
         value1 == null && value2 == null -> 0
-        value1 == null -> -1  // N/A is considered lower
-        value2 == null -> 1   // N/A is considered lower
+        value1 == null -> -1
+        value2 == null -> 1
         value1 > value2 -> 1
         value1 < value2 -> -1
         else -> 0
     }
 }
 
-/**
- * Compute comparison results for all specs between two phones
- * Positive = phone1 is higher/better, Negative = phone2 is higher/better, 0 = equal or no comparison
- */
 private fun computeSpecComparisons(phone1: Phone, phone2: Phone): SpecComparisonResults {
     val comparisons = mutableMapOf<String, Int>()
 
-    // Display Size - compare as decimal (6.7 vs 6.5)
     val displaySize1 = extractDisplaySize(phone1.displaySize)
     val displaySize2 = extractDisplaySize(phone2.displaySize)
     comparisons["Display Size"] = compareValues(displaySize1, displaySize2)
 
-    // Resolution - multiply width x height for total pixels
     val resolution1 = extractResolutionPixels(phone1.resolution)
     val resolution2 = extractResolutionPixels(phone2.resolution)
     comparisons["Resolution"] = compareValues(resolution1, resolution2)
 
-    // Refresh Rate - compare raw integer values directly
     val refreshRate1 = if (phone1.refreshRate > 0) phone1.refreshRate else null
     val refreshRate2 = if (phone2.refreshRate > 0) phone2.refreshRate else null
     comparisons["Refresh Rate"] = compareValues(refreshRate1, refreshRate2)
 
-    // Front Camera - sum all MP values
     val frontCamera1 = extractCameraMP(phone1.frontCamera)
     val frontCamera2 = extractCameraMP(phone2.frontCamera)
     comparisons["Front Camera"] = compareValues(frontCamera1, frontCamera2)
 
-    // Rear Camera - sum all MP values
     val rearCamera1 = extractCameraMP(phone1.rearCamera)
     val rearCamera2 = extractCameraMP(phone2.rearCamera)
     comparisons["Rear Camera"] = compareValues(rearCamera1, rearCamera2)
 
-    // Chipset - no comparison (always 0)
     comparisons["Chipset"] = 0
 
-    // Battery - compare raw integer values directly (avoids comma formatting issues)
     val battery1 = if (phone1.batteryCapacity > 0) phone1.batteryCapacity else null
     val battery2 = if (phone2.batteryCapacity > 0) phone2.batteryCapacity else null
     comparisons["Battery"] = compareValues(battery1, battery2)
 
-    // Charging - compare raw integer values directly
     val charging1 = if (phone1.wiredCharging > 0) phone1.wiredCharging else null
     val charging2 = if (phone2.wiredCharging > 0) phone2.wiredCharging else null
     comparisons["Charging"] = compareValues(charging1, charging2)
 
-    // OS - no comparison (always 0)
     comparisons["OS"] = 0
 
-    // Network - extract generation number (5G = 5, 4G = 4)
     val network1 = extractNetworkGeneration(phone1.network)
     val network2 = extractNetworkGeneration(phone2.network)
     comparisons["Network"] = compareValues(network1, network2)
 
-    // RAM - parse string to number (handles potential edge cases)
     val ram1 = extractNumberWithCommas(phone1.ram)
     val ram2 = extractNumberWithCommas(phone2.ram)
     comparisons["RAM"] = compareValues(ram1, ram2)
 
-    // Storage - parse string to number (handles commas like "1,024")
     val storage1 = extractNumberWithCommas(phone1.storage)
     val storage2 = extractNumberWithCommas(phone2.storage)
     comparisons["Storage"] = compareValues(storage1, storage2)
@@ -304,27 +435,23 @@ fun PhoneComparisonScreen(
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
 
-    // Phone images state
+    // Get responsive layout configuration
+    val layoutConfig = rememberComparisonLayoutConfig()
+
     var phone1Images by remember { mutableStateOf<PhoneImages?>(null) }
     var phone2Images by remember { mutableStateOf<PhoneImages?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Compute spec comparison results (which phone has higher value for each spec)
     val specComparisons = remember(phone1, phone2) {
         computeSpecComparisons(phone1, phone2)
     }
 
-    // Shared state for synchronized row heights across both columns
-    // Key: spec label, Value: max height measured from either column
     val specRowHeights = remember { mutableStateMapOf<String, Dp>() }
 
-    // Toggle state for showing/hiding comparison arrows
     var showComparisonArrows by remember { mutableStateOf(true) }
 
-    // Toggle state for showing/hiding alternating background pill
     var showBackgroundPill by remember { mutableStateOf(true) }
 
-    // Callback to update row heights when measured
     val onSpecRowHeightMeasured: (String, Dp) -> Unit = { label, height ->
         val currentHeight = specRowHeights[label] ?: 0.dp
         if (height > currentHeight) {
@@ -332,12 +459,10 @@ fun PhoneComparisonScreen(
         }
     }
 
-    // Fetch phone images
     LaunchedEffect(phone1.phoneDocId, phone2.phoneDocId) {
         try {
             val db = FirebaseFirestore.getInstance()
 
-            // Fetch phone 1 images
             if (phone1.phoneDocId.isNotEmpty()) {
                 val doc1 = db.collection("phone_images").document(phone1.phoneDocId).get().await()
                 if (doc1.exists()) {
@@ -345,7 +470,6 @@ fun PhoneComparisonScreen(
                 }
             }
 
-            // Fetch phone 2 images
             if (phone2.phoneDocId.isNotEmpty()) {
                 val doc2 = db.collection("phone_images").document(phone2.phoneDocId).get().await()
                 if (doc2.exists()) {
@@ -362,26 +486,26 @@ fun PhoneComparisonScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = layoutConfig.horizontalPadding)
     ) {
-        // TechCity logo at top center - tap to toggle background pill
+        // TechCity logo at top center - USES CONFIG
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 50.dp),
+                .padding(top = layoutConfig.topPadding),
             horizontalArrangement = Arrangement.Center
         ) {
             Image(
                 painter = painterResource(id = R.drawable.tc_logo_flat_colored),
                 contentDescription = "TechCity Logo - tap to toggle background",
                 modifier = Modifier
-                    .height(36.dp)
+                    .height(layoutConfig.logoHeight)
                     .clickable { showBackgroundPill = !showBackgroundPill },
                 contentScale = ContentScale.FillHeight
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(layoutConfig.logoToModelSpacing))
 
         // Main comparison area - two columns
         Row(
@@ -402,6 +526,7 @@ fun PhoneComparisonScreen(
                 onToggleArrows = { showComparisonArrows = !showComparisonArrows },
                 showBackgroundPill = showBackgroundPill,
                 isLeftColumn = true,
+                layoutConfig = layoutConfig,
                 modifier = Modifier.weight(1f)
             )
 
@@ -426,6 +551,7 @@ fun PhoneComparisonScreen(
                 onToggleArrows = { showComparisonArrows = !showComparisonArrows },
                 showBackgroundPill = showBackgroundPill,
                 isLeftColumn = false,
+                layoutConfig = layoutConfig,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -447,38 +573,32 @@ fun PhoneComparisonColumn(
     onToggleArrows: () -> Unit,
     showBackgroundPill: Boolean,
     isLeftColumn: Boolean,
+    layoutConfig: ComparisonLayoutConfig,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
 
-    // Selected color for image display
     var selectedColorName by remember(phone.phoneDocId) {
         mutableStateOf(phone.colors.firstOrNull() ?: "")
     }
 
-    // CHANGE #2: Infinite alternating swipe
-    // Use large page count with modulo 2 for infinite alternation
     val infinitePageCount = 10000
-    val startPage = infinitePageCount / 2  // Start in the middle
+    val startPage = infinitePageCount / 2
 
     val pagerState = rememberPagerState(
         initialPage = startPage,
         pageCount = { infinitePageCount }
     )
 
-    // Get actual view index (0 = specs, 1 = image)
     fun getActualViewIndex(page: Int): Int = page % 2
 
-    // Format display name
-    // For non-Apple: if manufacturer + model is too long, just show model to avoid excessive scrolling
     val displayName = remember(phone.manufacturer, phone.model) {
         if (phone.manufacturer.equals("Apple", ignoreCase = true)) {
             formatModelNameComparison(phone.model)
         } else {
             val fullName = "${phone.manufacturer} ${formatModelNameComparison(phone.model)}"
             val modelOnly = formatModelNameComparison(phone.model)
-            // If full name exceeds ~20 chars, just show model name
             if (fullName.length > 20) modelOnly else fullName
         }
     }
@@ -487,7 +607,7 @@ fun PhoneComparisonColumn(
         modifier = modifier.fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Model name at top - horizontally scrollable for long names
+        // Model name at top - USES CONFIG
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
@@ -499,13 +619,13 @@ fun PhoneComparisonColumn(
                 Image(
                     painter = painterResource(id = R.drawable.apple_logo),
                     contentDescription = "Apple logo",
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(layoutConfig.appleLogoSize)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
             Text(
                 text = displayName,
-                fontSize = 26.sp,
+                fontSize = layoutConfig.modelNameFontSize,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A1A1A),
                 textAlign = TextAlign.Center,
@@ -514,9 +634,9 @@ fun PhoneComparisonColumn(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(layoutConfig.modelToContentSpacing))
 
-        // Swipeable content area - infinite alternation
+        // Swipeable content area
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
@@ -525,7 +645,6 @@ fun PhoneComparisonColumn(
         ) { page ->
             when (getActualViewIndex(page)) {
                 0 -> {
-                    // Specs view
                     PhoneSpecsView(
                         phone = phone,
                         specComparisons = specComparisons,
@@ -535,32 +654,33 @@ fun PhoneComparisonColumn(
                         onToggleArrows = onToggleArrows,
                         showBackgroundPill = showBackgroundPill,
                         isLeftColumn = isLeftColumn,
+                        layoutConfig = layoutConfig,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
                 1 -> {
-                    // Image view
                     PhoneImageView(
                         phone = phone,
                         phoneImages = phoneImages,
                         selectedColorName = selectedColorName,
                         onColorSelected = { selectedColorName = it },
                         isLoading = isLoading,
+                        layoutConfig = layoutConfig,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
         }
 
-        // Price - below specs
+        // Price - USES CONFIG
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = if (phone.retailPrice > 0) "₱${String.format("%,.2f", phone.retailPrice)}" else "N/A",
-            fontSize = 28.sp,
+            fontSize = layoutConfig.priceFontSize,
             fontWeight = FontWeight.Bold,
             color = Color(0xFFDB2E2E)
         )
-        Spacer(modifier = Modifier.height(60.dp))
+        Spacer(modifier = Modifier.height(layoutConfig.priceBottomSpacing))
     }
 }
 
@@ -574,6 +694,7 @@ fun PhoneSpecsView(
     onToggleArrows: () -> Unit,
     showBackgroundPill: Boolean,
     isLeftColumn: Boolean,
+    layoutConfig: ComparisonLayoutConfig,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -583,9 +704,11 @@ fun PhoneSpecsView(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            // Left column: start padding, arrow at end (close to separator)
-            // Right column: arrow at start (close to separator), content centered, end padding
-            .padding(start = if (isLeftColumn) 48.dp else 0.dp, end = if (isLeftColumn) 0.dp else 48.dp, top = 0.dp),
+            .padding(
+                start = if (isLeftColumn) layoutConfig.leftColumnStartPadding else layoutConfig.rightColumnStartPadding,
+                end = if (isLeftColumn) layoutConfig.leftColumnEndPadding else layoutConfig.rightColumnEndPadding,
+                top = 0.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // Display Size
@@ -600,7 +723,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 0,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Resolution
@@ -615,7 +739,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 1,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Refresh Rate
@@ -630,7 +755,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 2,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Front Camera
@@ -645,7 +771,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 3,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Rear Camera
@@ -660,7 +787,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 4,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Chipset
@@ -675,7 +803,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 5,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Battery
@@ -690,7 +819,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 6,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Charging
@@ -705,7 +835,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 7,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // OS
@@ -720,7 +851,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 8,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Network
@@ -735,7 +867,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 9,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // RAM
@@ -750,7 +883,8 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 10,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
 
         // Storage
@@ -765,10 +899,9 @@ fun PhoneSpecsView(
             onToggleArrow = onToggleArrows,
             isLeftColumn = isLeftColumn,
             rowIndex = 11,
-            showBackgroundPill = showBackgroundPill
+            showBackgroundPill = showBackgroundPill,
+            layoutConfig = layoutConfig
         )
-
-        // Note: Price is shown separately at bottom of column, visible in both views
     }
 }
 
@@ -780,32 +913,31 @@ fun PhoneImageView(
     selectedColorName: String,
     onColorSelected: (String) -> Unit,
     isLoading: Boolean,
+    layoutConfig: ComparisonLayoutConfig,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    // Get image URL for selected color
     val colorImages = phoneImages?.getImagesForColor(selectedColorName)
     val imageUrl = colorImages?.highRes?.ifEmpty { colorImages.lowRes } ?: colorImages?.lowRes
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .offset(y = (-40).dp),
+            .offset(y = layoutConfig.imageYOffset),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Phone image - fixed height like PhoneDetailActivity
+        // Phone image - USES CONFIG (25% BIGGER for large screens)
         Box(
             modifier = Modifier
-                .height(500.dp)
+                .height(layoutConfig.imageHeight)
                 .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(32.dp))
             } else if (imageUrl != null) {
-                // Check for cached image
                 val isHighRes = colorImages?.lowRes.isNullOrEmpty() == true
                 val cachedPath = ImageCacheManager.getLocalImageUri(
                     context, phone.phoneDocId, selectedColorName, isHighRes
@@ -821,8 +953,8 @@ fun PhoneImageView(
                     modifier = Modifier
                         .fillMaxHeight()
                         .graphicsLayer {
-                            scaleX = 1.15f
-                            scaleY = 1.15f
+                            scaleX = layoutConfig.imageScale
+                            scaleY = layoutConfig.imageScale
                         },
                     contentScale = ContentScale.FillHeight
                 )
@@ -836,17 +968,17 @@ fun PhoneImageView(
             }
         }
 
-        // Color name - minimal gap
+        // Color name - USES CONFIG
         if (selectedColorName.isNotEmpty()) {
             Text(
                 text = selectedColorName,
-                fontSize = 14.sp,
+                fontSize = layoutConfig.colorNameFontSize,
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFF555555)
             )
         }
 
-        // Color swatches - minimal gap
+        // Color swatches - USES CONFIG
         if (phone.colors.isNotEmpty()) {
             Spacer(modifier = Modifier.height(4.dp))
             Row(
@@ -861,6 +993,8 @@ fun PhoneImageView(
                         colorName = colorName,
                         hexColor = hexColor,
                         isSelected = isSelected,
+                        selectedSize = layoutConfig.colorDotSizeSelected,
+                        unselectedSize = layoutConfig.colorDotSizeUnselected,
                         onClick = { onColorSelected(colorName) }
                     )
                 }
@@ -876,39 +1010,33 @@ fun ComparisonSpecRow(
     value: String,
     valueColor: Color = Color(0xFF222222),
     isPrice: Boolean = false,
-    comparisonResult: Int = 0,  // positive = phone1 higher, negative = phone2 higher, 0 = equal
+    comparisonResult: Int = 0,
     minHeight: Dp = 0.dp,
     onHeightMeasured: (Dp) -> Unit = {},
     showArrow: Boolean = true,
     onToggleArrow: () -> Unit = {},
     isLeftColumn: Boolean = true,
-    rowIndex: Int = 0,  // For alternating background
-    showBackgroundPill: Boolean = true  // Toggle for showing/hiding background
+    rowIndex: Int = 0,
+    showBackgroundPill: Boolean = true,
+    layoutConfig: ComparisonLayoutConfig
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    // Alternating background colors - only when showBackgroundPill is true
     val backgroundColor = if (showBackgroundPill) {
         if (rowIndex % 2 == 0) Color.White else Color(0xFFF5F5F5)
     } else {
         Color.Transparent
     }
 
-    // Arrow size - increased for better visibility
-    val arrowSize = 32.dp
-    // Fixed space allocated for arrow (consistent for both columns)
-    val arrowSpaceWidth = arrowSize
+    val arrowSpaceWidth = layoutConfig.arrowSize
 
-    // Determine which arrow to show (if any)
-    // comparisonResult > 0 means phone1 (left) has higher value
-    // comparisonResult < 0 means phone2 (right) has higher value
     val arrowRes: Int? = when {
-        comparisonResult == 0 -> null  // Equal, no arrow
-        isLeftColumn && comparisonResult > 0 -> R.raw.up_arrow    // Left column, this phone is higher
-        isLeftColumn && comparisonResult < 0 -> R.raw.down_arrow  // Left column, this phone is lower
-        !isLeftColumn && comparisonResult < 0 -> R.raw.up_arrow   // Right column, this phone is higher
-        !isLeftColumn && comparisonResult > 0 -> R.raw.down_arrow // Right column, this phone is lower
+        comparisonResult == 0 -> null
+        isLeftColumn && comparisonResult > 0 -> R.raw.up_arrow
+        isLeftColumn && comparisonResult < 0 -> R.raw.down_arrow
+        !isLeftColumn && comparisonResult < 0 -> R.raw.up_arrow
+        !isLeftColumn && comparisonResult > 0 -> R.raw.down_arrow
         else -> null
     }
 
@@ -922,13 +1050,13 @@ fun ComparisonSpecRow(
                 onHeightMeasured(measuredHeight)
             }
             .clickable { onToggleArrow() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = layoutConfig.specRowPadding, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isLeftColumn) {
-            // LEFT COLUMN LAYOUT: Icon + Label/Value + Arrow at far right (close to separator)
+            // LEFT COLUMN LAYOUT
 
-            // Icon
+            // Icon - USES CONFIG
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(iconRes)
@@ -936,18 +1064,18 @@ fun ComparisonSpecRow(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = null,
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(layoutConfig.specIconSize)
             )
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            // Label and Value
+            // Label and Value - USES CONFIG
             Column(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
                     text = label,
-                    fontSize = 14.sp,
+                    fontSize = layoutConfig.specLabelFontSize,
                     fontWeight = FontWeight.Normal,
                     color = Color(0xFF888888),
                     lineHeight = 16.sp
@@ -955,7 +1083,7 @@ fun ComparisonSpecRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = value,
-                    fontSize = if (isPrice) 20.sp else 15.sp,
+                    fontSize = if (isPrice) 20.sp else layoutConfig.specValueFontSize,
                     fontWeight = if (isPrice) FontWeight.Bold else FontWeight.SemiBold,
                     color = valueColor,
                     lineHeight = if (isPrice) 24.sp else 18.sp,
@@ -963,7 +1091,7 @@ fun ComparisonSpecRow(
                 )
             }
 
-            // Arrow space at far right (close to separator) - always present for consistent layout
+            // Arrow space - USES CONFIG
             Box(
                 modifier = Modifier.width(arrowSpaceWidth),
                 contentAlignment = Alignment.CenterEnd
@@ -976,14 +1104,14 @@ fun ComparisonSpecRow(
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = if (arrowRes == R.raw.up_arrow) "Higher" else "Lower",
-                        modifier = Modifier.size(arrowSize)
+                        modifier = Modifier.size(layoutConfig.arrowSize)
                     )
                 }
             }
         } else {
-            // RIGHT COLUMN LAYOUT: Arrow at far left (close to separator) + CENTERED content
+            // RIGHT COLUMN LAYOUT
 
-            // Arrow space at far left (close to separator) - always present for consistent layout
+            // Arrow space - USES CONFIG
             Box(
                 modifier = Modifier.width(arrowSpaceWidth),
                 contentAlignment = Alignment.CenterStart
@@ -996,12 +1124,12 @@ fun ComparisonSpecRow(
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = if (arrowRes == R.raw.up_arrow) "Higher" else "Lower",
-                        modifier = Modifier.size(arrowSize)
+                        modifier = Modifier.size(layoutConfig.arrowSize)
                     )
                 }
             }
 
-            // Content area - left-aligned for consistent positioning
+            // Content area
             Box(
                 modifier = Modifier.weight(1f),
                 contentAlignment = Alignment.CenterStart
@@ -1009,7 +1137,7 @@ fun ComparisonSpecRow(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Icon
+                    // Icon - USES CONFIG
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(iconRes)
@@ -1017,16 +1145,16 @@ fun ComparisonSpecRow(
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = null,
-                        modifier = Modifier.size(42.dp)
+                        modifier = Modifier.size(layoutConfig.specIconSize)
                     )
 
                     Spacer(modifier = Modifier.width(14.dp))
 
-                    // Label and Value
+                    // Label and Value - USES CONFIG
                     Column {
                         Text(
                             text = label,
-                            fontSize = 14.sp,
+                            fontSize = layoutConfig.specLabelFontSize,
                             fontWeight = FontWeight.Normal,
                             color = Color(0xFF888888),
                             lineHeight = 16.sp
@@ -1034,7 +1162,7 @@ fun ComparisonSpecRow(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = value,
-                            fontSize = if (isPrice) 20.sp else 15.sp,
+                            fontSize = if (isPrice) 20.sp else layoutConfig.specValueFontSize,
                             fontWeight = if (isPrice) FontWeight.Bold else FontWeight.SemiBold,
                             color = valueColor,
                             lineHeight = if (isPrice) 24.sp else 18.sp,
@@ -1052,6 +1180,8 @@ fun ComparisonColorDot(
     colorName: String,
     hexColor: String = "",
     isSelected: Boolean = false,
+    selectedSize: Dp = 24.dp,
+    unselectedSize: Dp = 18.dp,
     onClick: () -> Unit
 ) {
     val backgroundColor = remember(hexColor, colorName) {
@@ -1062,11 +1192,9 @@ fun ComparisonColorDot(
         }
     }
 
-    // CHANGE #1: Consistent border color matching PhoneDetailActivity
-    // Always use gray border (0xFFDDDDDD), just change size for selection
     Surface(
         modifier = Modifier
-            .size(if (isSelected) 24.dp else 18.dp)
+            .size(if (isSelected) selectedSize else unselectedSize)
             .border(
                 width = 1.dp,
                 color = Color(0xFFDDDDDD),
