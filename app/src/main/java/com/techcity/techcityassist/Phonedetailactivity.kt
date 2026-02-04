@@ -193,7 +193,7 @@ private fun createStandardLayoutConfig(): DetailLayoutConfig {
         variantChipPaddingH = 12.dp,
         variantChipPaddingV = 10.dp,
         variantChipFontSize = 15.sp,
-        ramChipMinWidth = 95.dp,
+        ramChipMinWidth = 110.dp,
         storageChipMinWidth = 140.dp,
         priceFontSize = 22.sp,
         priceEndPadding = 72.dp,
@@ -247,7 +247,7 @@ private fun createLargeLayoutConfig(): DetailLayoutConfig {
         variantChipPaddingH = 16.dp,
         variantChipPaddingV = 14.dp,
         variantChipFontSize = 19.sp,
-        ramChipMinWidth = 120.dp,
+        ramChipMinWidth = 140.dp,
         storageChipMinWidth = 175.dp,
         priceFontSize = 28.sp,
         priceEndPadding = 90.dp,
@@ -370,6 +370,9 @@ fun PhoneDetailContent(
         val index = allAvailableColors.indexOfFirst { it.equals(selectedColorName, ignoreCase = true) }
         if (index >= 0) index else 0
     }
+
+    // Zoom state for expanded image view
+    var isImageZoomed by remember { mutableStateOf(false) }
 
     LaunchedEffect(phone.phoneDocId) {
         if (phone.phoneDocId.isNotEmpty() && phoneImages == null) {
@@ -527,24 +530,29 @@ fun PhoneDetailContent(
         // Main content - Phone image and specs
         Row(
             modifier = Modifier
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(if (isImageZoomed) Modifier.weight(1f) else Modifier),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.Top
         ) {
             // Left side - Phone Image with color dots
             Column(
                 modifier = Modifier
-                    .weight(1.8f),
-                horizontalAlignment = Alignment.Start,
+                    .weight(if (isImageZoomed) 1f else 1.8f),
+                horizontalAlignment = if (isImageZoomed) Alignment.CenterHorizontally else Alignment.Start,
                 verticalArrangement = Arrangement.Top
             ) {
+                // Calculate image scale - reduce by 20% when zoomed
+                val effectiveImageScale = if (isImageZoomed) layoutConfig.imageScale * 0.7f else layoutConfig.imageScale
+
                 // Phone image - USES CONFIG (25% BIGGER for large screens)
                 Box(
                     modifier = Modifier
-                        .height(layoutConfig.imageHeight)
-                        .fillMaxWidth(0.85f)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center
+                        .then(if (isImageZoomed) Modifier.weight(1f) else Modifier.height(layoutConfig.imageHeight))
+                        .fillMaxWidth(if (isImageZoomed) 1f else 0.85f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { isImageZoomed = !isImageZoomed },
+                    contentAlignment = if (isImageZoomed) Alignment.TopCenter else Alignment.Center
                 ) {
                     if (isLoadingImages) {
                         CircularProgressIndicator()
@@ -568,8 +576,12 @@ fun PhoneDetailContent(
                                 modifier = Modifier
                                     .fillMaxHeight()
                                     .graphicsLayer {
-                                        scaleX = layoutConfig.imageScale
-                                        scaleY = layoutConfig.imageScale
+                                        scaleX = effectiveImageScale
+                                        scaleY = effectiveImageScale
+                                        // Move image up when zoomed to reduce gap from model name
+                                        if (isImageZoomed) {
+                                            translationY = -225f
+                                        }
                                     },
                                 contentScale = ContentScale.FillHeight
                             )
@@ -643,8 +655,12 @@ fun PhoneDetailContent(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .graphicsLayer {
-                                            scaleX = layoutConfig.imageScale
-                                            scaleY = layoutConfig.imageScale
+                                            scaleX = effectiveImageScale
+                                            scaleY = effectiveImageScale
+                                            // Move image up when zoomed to reduce gap from model name
+                                            if (isImageZoomed) {
+                                                translationY = -200f
+                                            }
                                         },
                                     contentScale = ContentScale.FillHeight
                                 )
@@ -667,14 +683,16 @@ fun PhoneDetailContent(
 
                 // Color name and swatches - USES CONFIG
                 Box(
-                    modifier = Modifier.fillMaxWidth(0.85f),
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .offset(y = if (isImageZoomed) (-200).dp else 0.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         if (currentColor.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(if (isImageZoomed) 0.dp else 6.dp))
                             Text(
                                 text = currentColor,
                                 fontSize = layoutConfig.colorNameFontSize,
@@ -684,7 +702,7 @@ fun PhoneDetailContent(
                         }
 
                         if (allAvailableColors.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(if (isImageZoomed) 4.dp else 8.dp))
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(layoutConfig.colorDotsSpacing),
                                 verticalAlignment = Alignment.CenterVertically
@@ -708,306 +726,314 @@ fun PhoneDetailContent(
                 }
             }
 
-            // Right side - Specs list - USES CONFIG
-            Column(
-                modifier = Modifier
-                    .weight(1.1f)
-                    .height(layoutConfig.specsColumnHeight)
-                    .offset(x = (-10).dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                val isLaptop = phone.deviceType.equals("laptop", ignoreCase = true)
+            // Right side - Specs list - USES CONFIG (hidden when zoomed)
+            if (!isImageZoomed) {
+                Column(
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .height(layoutConfig.specsColumnHeight)
+                        .offset(x = (-10).dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val isLaptop = phone.deviceType.equals("laptop", ignoreCase = true)
 
-                if (isLaptop) {
-                    // LAPTOP SPECS
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.screen_size_icon,
-                        label = "Display Size",
-                        value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} inches" else "N/A",
-                        isSvg = false,
-                        layoutConfig = layoutConfig,
-                        iconSize = layoutConfig.specIconSizeLarge,
-                        iconOffsetX = -4,
-                        textStartOffset = -8
-                    )
-
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.resolution_icon,
-                        label = "Resolution",
-                        value = phone.resolution.ifEmpty { "N/A" },
-                        isSvg = false,
-                        layoutConfig = layoutConfig
-                    )
-
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.refresh_rate_icon,
-                        label = "Refresh Rate",
-                        value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A",
-                        isSvg = false,
-                        layoutConfig = layoutConfig
-                    )
-
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.chipset_icon,
-                        label = "CPU",
-                        value = phone.cpu.ifEmpty { "N/A" },
-                        isSvg = false,
-                        layoutConfig = layoutConfig
-                    )
-
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.gpu_icon,
-                        label = "GPU",
-                        value = phone.gpu.ifEmpty { "N/A" },
-                        isSvg = false,
-                        layoutConfig = layoutConfig
-                    )
-
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.battery_icon,
-                        label = "Battery",
-                        value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A",
-                        isSvg = false,
-                        layoutConfig = layoutConfig
-                    )
-
-                    DetailSpecRowMultiLine(
-                        iconRes = R.raw.os_icon,
-                        label = "OS",
-                        value = phone.os.ifEmpty { "N/A" },
-                        isSvg = false,
-                        layoutConfig = layoutConfig
-                    )
-
-                } else {
-                    // PHONE/TABLET SPECS
-                    if (phone.displaySize.isNotEmpty()) {
+                    if (isLaptop) {
+                        // LAPTOP SPECS
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.screen_size_icon,
                             label = "Display Size",
-                            value = "${phone.displaySize} inches",
+                            value = if (phone.displaySize.isNotEmpty()) "${phone.displaySize} inches" else "N/A",
                             isSvg = false,
                             layoutConfig = layoutConfig,
                             iconSize = layoutConfig.specIconSizeLarge,
                             iconOffsetX = -4,
                             textStartOffset = -8
                         )
-                    }
 
-                    if (phone.resolution.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.resolution_icon,
                             label = "Resolution",
-                            value = phone.resolution,
+                            value = phone.resolution.ifEmpty { "N/A" },
                             isSvg = false,
                             layoutConfig = layoutConfig
                         )
-                    }
 
-                    if (phone.refreshRate > 0) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.refresh_rate_icon,
                             label = "Refresh Rate",
-                            value = "${phone.refreshRate} Hz",
+                            value = if (phone.refreshRate > 0) "${phone.refreshRate} Hz" else "N/A",
                             isSvg = false,
                             layoutConfig = layoutConfig
                         )
-                    }
 
-                    if (phone.frontCamera.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.camera_icon,
-                            label = "Front Camera",
-                            value = phone.frontCamera,
-                            isSvg = false,
-                            layoutConfig = layoutConfig
-                        )
-                    }
-
-                    if (phone.rearCamera.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.rear_camera_icon,
-                            label = "Rear Camera",
-                            value = phone.rearCamera,
-                            isSvg = false,
-                            layoutConfig = layoutConfig
-                        )
-                    }
-
-                    if (phone.chipset.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.chipset_icon,
-                            label = "Chipset",
-                            value = phone.chipset,
+                            label = "CPU",
+                            value = phone.cpu.ifEmpty { "N/A" },
                             isSvg = false,
                             layoutConfig = layoutConfig
                         )
-                    }
 
-                    if (phone.batteryCapacity > 0) {
+                        DetailSpecRowMultiLine(
+                            iconRes = R.raw.gpu_icon,
+                            label = "GPU",
+                            value = phone.gpu.ifEmpty { "N/A" },
+                            isSvg = false,
+                            layoutConfig = layoutConfig
+                        )
+
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.battery_icon,
                             label = "Battery",
-                            value = "${formatter.format(phone.batteryCapacity)} mAh",
+                            value = if (phone.batteryCapacity > 0) "${formatter.format(phone.batteryCapacity)} mAh" else "N/A",
                             isSvg = false,
                             layoutConfig = layoutConfig
                         )
-                    }
 
-                    if (phone.wiredCharging > 0) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.charging_icon,
-                            label = "Charging",
-                            value = "${phone.wiredCharging}W fast charging",
-                            isSvg = false,
-                            layoutConfig = layoutConfig
-                        )
-                    }
-
-                    if (phone.os.isNotEmpty()) {
                         DetailSpecRowMultiLine(
                             iconRes = R.raw.os_icon,
                             label = "OS",
-                            value = phone.os,
+                            value = phone.os.ifEmpty { "N/A" },
                             isSvg = false,
                             layoutConfig = layoutConfig
                         )
-                    }
 
-                    if (phone.network.isNotEmpty()) {
-                        DetailSpecRowMultiLine(
-                            iconRes = R.raw.network_icon,
-                            label = "Network",
-                            value = phone.network,
-                            isSvg = false,
-                            layoutConfig = layoutConfig
-                        )
+                    } else {
+                        // PHONE/TABLET SPECS
+                        if (phone.displaySize.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.screen_size_icon,
+                                label = "Display Size",
+                                value = "${phone.displaySize} inches",
+                                isSvg = false,
+                                layoutConfig = layoutConfig,
+                                iconSize = layoutConfig.specIconSizeLarge,
+                                iconOffsetX = -4,
+                                textStartOffset = -8
+                            )
+                        }
+
+                        if (phone.resolution.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.resolution_icon,
+                                label = "Resolution",
+                                value = phone.resolution,
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.refreshRate > 0) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.refresh_rate_icon,
+                                label = "Refresh Rate",
+                                value = "${phone.refreshRate} Hz",
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.frontCamera.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.camera_icon,
+                                label = "Front Camera",
+                                value = phone.frontCamera,
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.rearCamera.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.rear_camera_icon,
+                                label = "Rear Camera",
+                                value = phone.rearCamera,
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.chipset.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.chipset_icon,
+                                label = "Chipset",
+                                value = phone.chipset,
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.batteryCapacity > 0) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.battery_icon,
+                                label = "Battery",
+                                value = "${formatter.format(phone.batteryCapacity)} mAh",
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.wiredCharging > 0) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.charging_icon,
+                                label = "Charging",
+                                value = "${phone.wiredCharging}W fast charging",
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.os.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.os_icon,
+                                label = "OS",
+                                value = phone.os,
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
+
+                        if (phone.network.isNotEmpty()) {
+                            DetailSpecRowMultiLine(
+                                iconRes = R.raw.network_icon,
+                                label = "Network",
+                                value = phone.network,
+                                isSvg = false,
+                                layoutConfig = layoutConfig
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // RAM/Storage/Price variants - USES CONFIG
-        Spacer(modifier = Modifier.height(10.dp))
+        // RAM/Storage/Price variants - USES CONFIG (hidden when image is zoomed)
+        if (!isImageZoomed) {
+            Spacer(modifier = Modifier.height(10.dp))
 
-        if (isLoadingVariants) {
-            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            if (isLoadingVariants) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            } else {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(layoutConfig.variantRowSpacing)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    variants.forEach { variant ->
-                        val variantKey = "${variant.ram}|${variant.storage}"
-                        val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
-                        val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(layoutConfig.variantRowSpacing)
+                    ) {
+                        variants.forEach { variant ->
+                            val variantKey = "${variant.ram}|${variant.storage}"
+                            val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
+                            val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
 
-                        val barColor = if (isAvailableInSelectedColor) {
-                            val hexColor = phoneImages?.getHexColorForColor(currentColor) ?: ""
-                            if (hexColor.isNotEmpty()) {
-                                parseHexColorDetail(hexColor)
+                            val barColor = if (isAvailableInSelectedColor) {
+                                val hexColor = phoneImages?.getHexColorForColor(currentColor) ?: ""
+                                if (hexColor.isNotEmpty()) {
+                                    parseHexColorDetail(hexColor)
+                                } else {
+                                    getColorFromNameDetail(currentColor)
+                                }
                             } else {
-                                getColorFromNameDetail(currentColor)
+                                Color.Transparent
                             }
-                        } else {
-                            Color.Transparent
-                        }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Chips container - USES CONFIG
                             Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = layoutConfig.variantStartPadding),
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // RAM chip - USES CONFIG
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.White,
+                                // Chips container - USES CONFIG
+                                Row(
                                     modifier = Modifier
-                                        .widthIn(min = layoutConfig.ramChipMinWidth)
-                                        .border(
-                                            1.dp,
-                                            Color(0xFFE0E0E0),
-                                            RoundedCornerShape(6.dp)
-                                        )
+                                        .weight(1f)
+                                        .padding(start = layoutConfig.variantStartPadding),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "${variant.ram}GB RAM",
-                                        modifier = Modifier.padding(
-                                            horizontal = layoutConfig.variantChipPaddingH,
-                                            vertical = layoutConfig.variantChipPaddingV
-                                        ),
-                                        fontSize = layoutConfig.variantChipFontSize,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF333333),
-                                        textAlign = TextAlign.Center
+                                    // RAM chip - USES CONFIG (fixed width for consistent alignment)
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .width(layoutConfig.ramChipMinWidth)
+                                            .border(
+                                                1.dp,
+                                                Color(0xFFE0E0E0),
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "${variant.ram}GB RAM",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(
+                                                    horizontal = layoutConfig.variantChipPaddingH,
+                                                    vertical = layoutConfig.variantChipPaddingV
+                                                ),
+                                            fontSize = layoutConfig.variantChipFontSize,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF333333),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Storage chip - USES CONFIG (fixed width for consistent alignment)
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .width(layoutConfig.storageChipMinWidth)
+                                            .border(
+                                                1.dp,
+                                                Color(0xFFE0E0E0),
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "${variant.storage}GB Storage",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(
+                                                    horizontal = layoutConfig.variantChipPaddingH,
+                                                    vertical = layoutConfig.variantChipPaddingV
+                                                ),
+                                            fontSize = layoutConfig.variantChipFontSize,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF333333),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+
+                                    // Color availability bar - USES CONFIG
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .width(layoutConfig.colorBarWidth)
+                                            .height(layoutConfig.colorBarHeight)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(barColor)
+                                            .then(
+                                                if (isAvailableInSelectedColor) {
+                                                    Modifier.border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(3.dp))
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                // Storage chip - USES CONFIG
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.White,
-                                    modifier = Modifier
-                                        .widthIn(min = layoutConfig.storageChipMinWidth)
-                                        .border(
-                                            1.dp,
-                                            Color(0xFFE0E0E0),
-                                            RoundedCornerShape(6.dp)
-                                        )
-                                ) {
-                                    Text(
-                                        text = "${variant.storage}GB Storage",
-                                        modifier = Modifier.padding(
-                                            horizontal = layoutConfig.variantChipPaddingH,
-                                            vertical = layoutConfig.variantChipPaddingV
-                                        ),
-                                        fontSize = layoutConfig.variantChipFontSize,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF333333),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-
-                                // Color availability bar - USES CONFIG
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .width(layoutConfig.colorBarWidth)
-                                        .height(layoutConfig.colorBarHeight)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(barColor)
-                                        .then(
-                                            if (isAvailableInSelectedColor) {
-                                                Modifier.border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(3.dp))
-                                            } else {
-                                                Modifier
-                                            }
-                                        )
+                                // Price - USES CONFIG (BIGGER FONT for large screens)
+                                Text(
+                                    text = "₱${String.format("%,.2f", variant.retailPrice)}",
+                                    fontSize = layoutConfig.priceFontSize,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFDB2E2E),
+                                    modifier = Modifier.padding(end = layoutConfig.priceEndPadding)
                                 )
                             }
-
-                            // Price - USES CONFIG (BIGGER FONT for large screens)
-                            Text(
-                                text = "₱${String.format("%,.2f", variant.retailPrice)}",
-                                fontSize = layoutConfig.priceFontSize,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFDB2E2E),
-                                modifier = Modifier.padding(end = layoutConfig.priceEndPadding)
-                            )
                         }
                     }
                 }
