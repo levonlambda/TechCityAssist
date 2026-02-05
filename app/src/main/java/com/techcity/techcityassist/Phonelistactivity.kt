@@ -257,6 +257,9 @@ fun MainScreen(deviceType: String = "phone") {
     // Dynamic manufacturer list based on device type (will be populated from data)
     var manufacturerFilters by remember { mutableStateOf(listOf("All")) }
 
+    // View mode: false = expanded (individual cards), true = merged (grouped cards)
+    var useMergedView by remember { mutableStateOf(false) }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -479,6 +482,38 @@ fun MainScreen(deviceType: String = "phone") {
                                 ImageCacheManager.clearCache(context)
                             }
                         )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        // View Mode Section
+                        Text(
+                            text = "View Mode",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF6200EE),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+
+                        // Toggle between Expanded and Merged view
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = useMergedView,
+                                        onCheckedChange = null,
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF6200EE)
+                                        )
+                                    )
+                                    Text("Merge Variants")
+                                }
+                            },
+                            onClick = {
+                                useMergedView = !useMergedView
+                            }
+                        )
                     }
                 }
             )
@@ -492,7 +527,8 @@ fun MainScreen(deviceType: String = "phone") {
             onManufacturersLoaded = { manufacturers ->
                 // Sort with priority ordering, then prepend "All"
                 manufacturerFilters = listOf("All") + sortManufacturersWithPriority(manufacturers)
-            }
+            },
+            useMergedView = useMergedView
         )
     }
 }
@@ -625,7 +661,8 @@ fun PhoneListScreen(
     filters: DisplayFilters = DisplayFilters(),
     selectedManufacturer: String = "All",
     deviceType: String = "phone",
-    onManufacturersLoaded: (List<String>) -> Unit = {}
+    onManufacturersLoaded: (List<String>) -> Unit = {},
+    useMergedView: Boolean = false
 ) {
     val context = LocalContext.current
     var phones by remember { mutableStateOf<List<Phone>>(emptyList()) }
@@ -720,16 +757,16 @@ fun PhoneListScreen(
                             if (isRefurbished) filters.showPhonesRefurbished else filters.showPhonesBrandNew
                         })
             }
-            .groupBy { "${it.manufacturer}|${it.model}" }  // Group by model
-            .map { (_, variants) ->
-                // Sort variants within each model by price
-                variants.sortedBy { it.retailPrice }
-            }
-            .sortedBy { variants ->
-                // Sort model groups by their lowest price (first item after sorting)
-                variants.firstOrNull()?.retailPrice ?: Double.MAX_VALUE
-            }
-            .flatten()  // Flatten back to a single list
+            .sortedBy { it.retailPrice }  // Sort purely by price
+    }
+
+    // Create merged phone groups when in merged view mode
+    val mergedPhoneGroups = remember(filteredPhones, phoneImagesMap, useMergedView) {
+        if (useMergedView) {
+            groupPhonesForMergedView(filteredPhones, phoneImagesMap)
+        } else {
+            emptyList()
+        }
     }
 
     // Update PhoneListHolder whenever filteredPhones or phoneImagesMap changes
@@ -1290,7 +1327,7 @@ fun PhoneListScreen(
                 }
             }
         }
-    } else if (filteredPhones.isEmpty()) {
+    } else if (filteredPhones.isEmpty() || (useMergedView && mergedPhoneGroups.isEmpty())) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -1317,50 +1354,78 @@ fun PhoneListScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                itemsIndexed(
-                    items = filteredPhones,
-                    key = { _, phone -> "${phone.phoneDocId}_${phone.ram}_${phone.storage}" }
-                ) { index, phone ->
-                    // Check if this phone is marked for comparison
-                    val isMarkedForComparison = markedPhoneForComparison?.let { marked ->
-                        marked.phoneDocId == phone.phoneDocId &&
-                                marked.ram == phone.ram &&
-                                marked.storage == phone.storage
-                    } ?: false
+                if (useMergedView) {
+                    // MERGED VIEW - Show grouped cards
+                    itemsIndexed(
+                        items = mergedPhoneGroups,
+                        key = { _, group -> "${group.phoneDocId}_${group.groupIndex}_merged" }
+                    ) { index, group ->
+                        MergedPhoneCard(
+                            group = group,
+                            phoneImages = phoneImagesMap[group.phoneDocId],
+                            imageLoader = imageLoader,
+                            layoutConfig = cardLayoutConfig,
+                            isMarkedForComparison = false,
+                            onClick = { variant, selectedColor ->
+                                // Navigate to detail activity with the selected variant
+                                val phone = mergedVariantToPhone(group, variant)
+                                val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
+                                navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
+                            },
+                            onLongClick = { variant ->
+                                // Can implement comparison for merged view later
+                            },
+                            isAlternate = index % 2 == 1,
+                            initialColorIndex = index % 2
+                        )
+                    }
+                } else {
+                    // EXPANDED VIEW - Show individual cards (existing behavior)
+                    itemsIndexed(
+                        items = filteredPhones,
+                        key = { _, phone -> "${phone.phoneDocId}_${phone.ram}_${phone.storage}" }
+                    ) { index, phone ->
+                        // Check if this phone is marked for comparison
+                        val isMarkedForComparison = markedPhoneForComparison?.let { marked ->
+                            marked.phoneDocId == phone.phoneDocId &&
+                                    marked.ram == phone.ram &&
+                                    marked.storage == phone.storage
+                        } ?: false
 
-                    PhoneCard(
-                        phone = phone,
-                        phoneImages = phoneImagesMap[phone.phoneDocId],
-                        imageLoader = imageLoader,
-                        layoutConfig = cardLayoutConfig,
-                        isMarkedForComparison = isMarkedForComparison,
-                        onClick = { selectedColor ->
-                            // Navigate to detail activity with unique model index and selected color
-                            val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
-                            navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
-                        },
-                        onLongClick = {
-                            // Handle comparison marking
-                            if (markedPhoneForComparison == null) {
-                                // No phone marked yet - mark this one
-                                markedPhoneForComparison = phone
-                            } else if (isMarkedForComparison) {
-                                // User long-pressed the same phone - unmark it
-                                markedPhoneForComparison = null
-                            } else {
-                                // A different phone is already marked - show comparison dialog
-                                phoneToCompareWith = phone
-                                showComparisonDialog = true
-                            }
-                        },
-                        isAlternate = index % 2 == 1,
-                        initialColorIndex = index % 2  // Alternate starting color
-                    )
+                        PhoneCard(
+                            phone = phone,
+                            phoneImages = phoneImagesMap[phone.phoneDocId],
+                            imageLoader = imageLoader,
+                            layoutConfig = cardLayoutConfig,
+                            isMarkedForComparison = isMarkedForComparison,
+                            onClick = { selectedColor ->
+                                // Navigate to detail activity with unique model index and selected color
+                                val uniqueIndex = PhoneListHolder.getUniqueModelIndex(phone)
+                                navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
+                            },
+                            onLongClick = {
+                                // Handle comparison marking
+                                if (markedPhoneForComparison == null) {
+                                    // No phone marked yet - mark this one
+                                    markedPhoneForComparison = phone
+                                } else if (isMarkedForComparison) {
+                                    // User long-pressed the same phone - unmark it
+                                    markedPhoneForComparison = null
+                                } else {
+                                    // A different phone is already marked - show comparison dialog
+                                    phoneToCompareWith = phone
+                                    showComparisonDialog = true
+                                }
+                            },
+                            isAlternate = index % 2 == 1,
+                            initialColorIndex = index % 2  // Alternate starting color
+                        )
+                    }
                 }
             }
 
-            // Floating indicator when a phone is marked for comparison
-            if (markedPhoneForComparison != null) {
+            // Floating indicator when a phone is marked for comparison (only in expanded view)
+            if (markedPhoneForComparison != null && !useMergedView) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
