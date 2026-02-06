@@ -308,18 +308,35 @@ fun MergedPhoneCard(
         }
     }
 
-    // Get color data with images
-    val colorsWithImages = remember(group.phoneDocId, group.allColors, phoneImages) {
+    // FIX: Get color data with images - USE PRECOMPUTED DATA from PhoneListHolder
+    // This ensures we use locally cached images instead of always fetching from remote
+    val colorsWithImages = remember(group.phoneDocId, group.allColors, group.variants, phoneImages) {
         group.allColors.map { colorName ->
-            val images = phoneImages?.getImagesForColor(colorName)
-            val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
-            ColorImageData(
-                colorName = colorName,
-                imageUrl = remoteUrl,
-                hexColor = images?.hexColor ?: "",
-                remoteUrl = remoteUrl,
-                isCached = false
-            )
+            // Find a variant that has this color to get its precomputed data
+            val variantWithColor = group.variants.find { variant ->
+                variant.colors.any { it.equals(colorName, ignoreCase = true) }
+            }
+
+            // Try to get precomputed color data for this variant
+            val precomputedData = variantWithColor?.let { variant ->
+                val key = "${variant.phoneDocId}_${variant.ram}_${variant.storage}"
+                PhoneListHolder.precomputedColorData[key]?.find {
+                    it.colorName.equals(colorName, ignoreCase = true)
+                }
+            }
+
+            // Use precomputed data if available, otherwise fallback to computing fresh
+            precomputedData ?: run {
+                val images = phoneImages?.getImagesForColor(colorName)
+                val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
+                ColorImageData(
+                    colorName = colorName,
+                    imageUrl = remoteUrl,
+                    hexColor = images?.hexColor ?: "",
+                    remoteUrl = remoteUrl,
+                    isCached = false
+                )
+            }
         }
     }
 
@@ -613,9 +630,18 @@ fun MergedPhoneCard(
                                 val imageSource = colorData.imageUrl
 
                                 if (imageSource != null) {
-                                    val imageRequest = remember(imageSource, colorData.cacheVersion) {
+                                    // FIX: Convert to File object if cached (like PhoneCard does)
+                                    val imageModel = remember(imageSource, colorData.isCached, colorData.cacheVersion) {
+                                        if (colorData.isCached) {
+                                            java.io.File(imageSource)
+                                        } else {
+                                            imageSource
+                                        }
+                                    }
+
+                                    val imageRequest = remember(imageModel, group.phoneDocId, colorData.colorName, colorData.cacheVersion) {
                                         ImageRequest.Builder(context)
-                                            .data(imageSource)
+                                            .data(imageModel)
                                             .memoryCacheKey("${group.phoneDocId}_${colorData.colorName}_${colorData.cacheVersion}")
                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                             .diskCachePolicy(CachePolicy.ENABLED)
