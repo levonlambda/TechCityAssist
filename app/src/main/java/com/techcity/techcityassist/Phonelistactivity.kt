@@ -1,6 +1,10 @@
 package com.techcity.techcityassist
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.ui.layout.SubcomposeLayout
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
@@ -37,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,6 +58,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,6 +75,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -238,6 +245,64 @@ fun sortManufacturersWithPriority(manufacturers: List<String>): List<String> {
     return sortedPriority + sortedOthers
 }
 
+/**
+ * Generate a formatted price list text for a specific manufacturer.
+ * Used when long-pressing a manufacturer filter button to copy to clipboard.
+ * Format A: Grouped by model with RAM/Storage and price per variant.
+ */
+fun generatePriceListText(
+    manufacturer: String,
+    deviceType: String,
+    filters: DisplayFilters
+): String {
+    val phones = PhoneListHolder.allDevices
+        .filter { it.deviceType.equals(deviceType, ignoreCase = true) }
+        .filter { it.manufacturer.equals(manufacturer, ignoreCase = true) }
+        .filter { !it.manufacturer.equals("techcity", ignoreCase = true) }
+        .filter { matchesPriceFilter(it, filters) }
+        .filter {
+            if (deviceType == "phone") {
+                val isRefurbished = it.model.contains("refurbished", ignoreCase = true)
+                if (isRefurbished) filters.showPhonesRefurbished else filters.showPhonesBrandNew
+            } else true
+        }
+
+    if (phones.isEmpty()) return ""
+
+    val typeLabel = when (deviceType.lowercase()) {
+        "phone" -> "Phones"
+        "tablet" -> "Tablets"
+        "laptop" -> "Laptops"
+        else -> "Devices"
+    }
+
+    val sb = StringBuilder()
+    sb.appendLine("$manufacturer $typeLabel")
+
+    // Group by model (case-insensitive), sort groups by lowest price
+    val grouped = phones.groupBy { it.model.lowercase().trim() }
+        .map { (_, variants) -> variants.sortedBy { it.retailPrice } }
+        .sortedBy { it.first().retailPrice }
+
+    val formatter = NumberFormat.getNumberInstance(Locale.US).apply {
+        maximumFractionDigits = 0
+    }
+
+    grouped.forEach { variants ->
+        sb.appendLine()
+        val displayName = formatModelName(variants.first().model)
+        sb.appendLine(displayName)
+        variants.forEach { phone ->
+            val ramClean = phone.ram.replace(Regex("(?i)\\s*gb\\s*"), "").trim()
+            val storageText = phone.storage.trim()
+            val priceFormatted = "\u20B1${formatter.format(phone.retailPrice)}"
+            sb.appendLine("\u2022 $ramClean/$storageText \u2014 $priceFormatted")
+        }
+    }
+
+    return sb.toString().trimEnd()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(deviceType: String = "phone") {
@@ -258,7 +323,7 @@ fun MainScreen(deviceType: String = "phone") {
     var manufacturerFilters by remember { mutableStateOf(listOf("All")) }
 
     // View mode: false = expanded (individual cards), true = merged (grouped cards)
-    var useMergedView by remember { mutableStateOf(false) }
+    var useMergedView by remember { mutableStateOf(true) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -305,6 +370,38 @@ fun MainScreen(deviceType: String = "phone") {
                     actionIconContentColor = Color(0xFF333333)
                 ),
                 actions = {
+                    // Copy price list button - only visible when a specific manufacturer is selected
+                    if (selectedManufacturer != "All") {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .offset(x = 12.dp)
+                                .clickable {
+                                    val priceListText = generatePriceListText(
+                                        manufacturer = selectedManufacturer,
+                                        deviceType = deviceType,
+                                        filters = filters
+                                    )
+                                    if (priceListText.isNotEmpty()) {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("price_list", priceListText)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "$selectedManufacturer price list copied!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "No $selectedManufacturer devices found", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy price list",
+                                modifier = Modifier.size(18.dp),
+                                tint = Color(0xFF333333)
+                            )
+                        }
+                    }
+
                     // Kebab menu (three dots)
                     IconButton(onClick = { showMenu = true }) {
                         Icon(
@@ -316,7 +413,8 @@ fun MainScreen(deviceType: String = "phone") {
                     // Dropdown menu
                     DropdownMenu(
                         expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
+                        onDismissRequest = { showMenu = false },
+                        containerColor = Color(0xFFFCF9F5)
                     ) {
                         // Only show phone filters when viewing phones
                         if (deviceType == "phone") {
@@ -325,7 +423,7 @@ fun MainScreen(deviceType: String = "phone") {
                                 text = "Display Filters",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = Color(0xFF6200EE),
+                                color = Color(0xFF555555),
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                             )
 
@@ -339,10 +437,12 @@ fun MainScreen(deviceType: String = "phone") {
                                             checked = filters.showPhonesBrandNew,
                                             onCheckedChange = null,  // Let DropdownMenuItem handle clicks
                                             colors = CheckboxDefaults.colors(
-                                                checkedColor = Color(0xFF6200EE)
+                                                checkedColor = Color(0xFFFCF9F5),
+                                                checkmarkColor = Color.Black,
+                                                uncheckedColor = Color.Black
                                             )
                                         )
-                                        Text("Phones (Brand New)")
+                                        Text("Phones (Brand New)", color = Color.Black)
                                     }
                                 },
                                 onClick = {
@@ -360,10 +460,12 @@ fun MainScreen(deviceType: String = "phone") {
                                             checked = filters.showPhonesRefurbished,
                                             onCheckedChange = null,
                                             colors = CheckboxDefaults.colors(
-                                                checkedColor = Color(0xFF6200EE)
+                                                checkedColor = Color(0xFFFCF9F5),
+                                                checkmarkColor = Color.Black,
+                                                uncheckedColor = Color.Black
                                             )
                                         )
-                                        Text("Phones (Refurbished)")
+                                        Text("Phones (Refurbished)", color = Color.Black)
                                     }
                                 },
                                 onClick = {
@@ -379,7 +481,7 @@ fun MainScreen(deviceType: String = "phone") {
                             text = "Price Filter",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFF6200EE),
+                            color = Color(0xFF555555),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
 
@@ -399,7 +501,9 @@ fun MainScreen(deviceType: String = "phone") {
                                     )
                                 },
                                 colors = CheckboxDefaults.colors(
-                                    checkedColor = Color(0xFF6200EE)
+                                    checkedColor = Color(0xFFFCF9F5),
+                                    checkmarkColor = Color.Black,
+                                    uncheckedColor = Color.Black
                                 )
                             )
                             OutlinedTextField(
@@ -412,15 +516,20 @@ fun MainScreen(deviceType: String = "phone") {
                                         filters = filters.copy(minPrice = filtered.toDoubleOrNull())
                                     }
                                 },
-                                label = { Text("Min Price", fontSize = 12.sp) },
-                                placeholder = { Text("0", fontSize = 12.sp) },
+                                label = { Text("Min Price", fontSize = 12.sp, color = Color.Black) },
+                                placeholder = { Text("0", fontSize = 12.sp, color = Color.Black) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(56.dp),
                                 singleLine = true,
                                 enabled = filters.enableMinPrice,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = Color.Black),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedBorderColor = Color.Black,
+                                    focusedBorderColor = Color.Black,
+                                    disabledBorderColor = Color.Black
+                                )
                             )
                         }
 
@@ -440,7 +549,9 @@ fun MainScreen(deviceType: String = "phone") {
                                     )
                                 },
                                 colors = CheckboxDefaults.colors(
-                                    checkedColor = Color(0xFF6200EE)
+                                    checkedColor = Color(0xFFFCF9F5),
+                                    checkmarkColor = Color.Black,
+                                    uncheckedColor = Color.Black
                                 )
                             )
                             OutlinedTextField(
@@ -453,22 +564,27 @@ fun MainScreen(deviceType: String = "phone") {
                                         filters = filters.copy(maxPrice = filtered.toDoubleOrNull())
                                     }
                                 },
-                                label = { Text("Max Price", fontSize = 12.sp) },
-                                placeholder = { Text("999999", fontSize = 12.sp) },
+                                label = { Text("Max Price", fontSize = 12.sp, color = Color.Black) },
+                                placeholder = { Text("999999", fontSize = 12.sp, color = Color.Black) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(56.dp),
                                 singleLine = true,
                                 enabled = filters.enableMaxPrice,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = Color.Black),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedBorderColor = Color.Black,
+                                    focusedBorderColor = Color.Black,
+                                    disabledBorderColor = Color.Black
+                                )
                             )
                         }
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                         DropdownMenuItem(
-                            text = { Text("Image Management") },
+                            text = { Text("Image Management", color = Color(0xFF555555)) },
                             onClick = {
                                 showMenu = false
                                 val intent = Intent(context, ImageManagementActivity::class.java)
@@ -476,7 +592,7 @@ fun MainScreen(deviceType: String = "phone") {
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Clear Image Cache (${ImageCacheManager.getCacheSizeFormatted(context)})") },
+                            text = { Text("Clear Image Cache (${ImageCacheManager.getCacheSizeFormatted(context)})", color = Color(0xFF555555)) },
                             onClick = {
                                 showMenu = false
                                 ImageCacheManager.clearCache(context)
@@ -490,7 +606,7 @@ fun MainScreen(deviceType: String = "phone") {
                             text = "View Mode",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = Color(0xFF6200EE),
+                            color = Color(0xFF555555),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
 
@@ -504,10 +620,12 @@ fun MainScreen(deviceType: String = "phone") {
                                         checked = useMergedView,
                                         onCheckedChange = null,
                                         colors = CheckboxDefaults.colors(
-                                            checkedColor = Color(0xFF6200EE)
+                                            checkedColor = Color(0xFFFCF9F5),
+                                            checkmarkColor = Color.Black,
+                                            uncheckedColor = Color.Black
                                         )
                                     )
-                                    Text("Merge Variants")
+                                    Text("Merge Variants", color = Color.Black)
                                 }
                             },
                             onClick = {
