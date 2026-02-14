@@ -257,7 +257,7 @@ fun generatePriceListText(
 ): String {
     val phones = PhoneListHolder.allDevices
         .filter { it.deviceType.equals(deviceType, ignoreCase = true) }
-        .filter { it.manufacturer.equals(manufacturer, ignoreCase = true) }
+        .filter { if (manufacturer != "All") it.manufacturer.equals(manufacturer, ignoreCase = true) else true }
         .filter { !it.manufacturer.equals("techcity", ignoreCase = true) }
         .filter { matchesPriceFilter(it, filters) }
         .filter {
@@ -277,10 +277,15 @@ fun generatePriceListText(
     }
 
     val sb = StringBuilder()
-    sb.appendLine("$manufacturer $typeLabel")
+    val header = when {
+        manufacturer == "All" -> "All $typeLabel"
+        manufacturer.equals("Apple", ignoreCase = true) && typeLabel == "Phones" -> "iPhone"
+        else -> "$manufacturer $typeLabel"
+    }
+    sb.appendLine(header)
 
-    // Group by model (case-insensitive), sort groups by lowest price
-    val grouped = phones.groupBy { it.model.lowercase().trim() }
+    // Group by manufacturer+model (case-insensitive), sort groups by lowest price
+    val grouped = phones.groupBy { "${it.manufacturer.lowercase().trim()}|${it.model.lowercase().trim()}" }
         .map { (_, variants) -> variants.sortedBy { it.retailPrice } }
         .sortedBy { it.first().retailPrice }
 
@@ -290,7 +295,12 @@ fun generatePriceListText(
 
     grouped.forEach { variants ->
         sb.appendLine()
-        val displayName = formatModelName(variants.first().model)
+        val firstPhone = variants.first()
+        val displayName = if (manufacturer == "All" && !firstPhone.manufacturer.equals("Apple", ignoreCase = true)) {
+            "${firstPhone.manufacturer} ${formatModelName(firstPhone.model)}"
+        } else {
+            formatModelName(firstPhone.model)
+        }
         sb.appendLine(displayName)
         variants.forEach { phone ->
             val ramClean = phone.ram.replace(Regex("(?i)\\s*gb\\s*"), "").trim()
@@ -370,36 +380,35 @@ fun MainScreen(deviceType: String = "phone") {
                     actionIconContentColor = Color(0xFF333333)
                 ),
                 actions = {
-                    // Copy price list button - only visible when a specific manufacturer is selected
-                    if (selectedManufacturer != "All") {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .offset(x = 12.dp)
-                                .clickable {
-                                    val priceListText = generatePriceListText(
-                                        manufacturer = selectedManufacturer,
-                                        deviceType = deviceType,
-                                        filters = filters
-                                    )
-                                    if (priceListText.isNotEmpty()) {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("price_list", priceListText)
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "$selectedManufacturer price list copied!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "No $selectedManufacturer devices found", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy price list",
-                                modifier = Modifier.size(18.dp),
-                                tint = Color(0xFF333333)
-                            )
-                        }
+                    // Copy price list button
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .offset(x = 12.dp)
+                            .clickable {
+                                val priceListText = generatePriceListText(
+                                    manufacturer = selectedManufacturer,
+                                    deviceType = deviceType,
+                                    filters = filters
+                                )
+                                val toastLabel = if (selectedManufacturer == "All") "All" else selectedManufacturer
+                                if (priceListText.isNotEmpty()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("price_list", priceListText)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "$toastLabel price list copied!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "No $toastLabel devices found", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy price list",
+                            modifier = Modifier.size(18.dp),
+                            tint = Color(0xFF333333)
+                        )
                     }
 
                     // Kebab menu (three dots)
@@ -796,6 +805,10 @@ fun PhoneListScreen(
     var markedPhoneForComparison by remember { mutableStateOf<Phone?>(null) }
     var phoneToCompareWith by remember { mutableStateOf<Phone?>(null) }
     var showComparisonDialog by remember { mutableStateOf(false) }
+
+    // Track merged groups for variant selection in comparison dialog
+    var markedMergedGroup by remember { mutableStateOf<MergedPhoneGroup?>(null) }
+    var compareWithMergedGroup by remember { mutableStateOf<MergedPhoneGroup?>(null) }
 
     // Store phone images for all phones (phoneDocId -> PhoneImages)
     var phoneImagesMap by remember { mutableStateOf<Map<String, PhoneImages>>(emptyMap()) }
@@ -1220,6 +1233,7 @@ fun PhoneListScreen(
             onDismissRequest = {
                 showComparisonDialog = false
                 phoneToCompareWith = null
+                compareWithMergedGroup = null
             },
             title = {
                 Text(
@@ -1256,11 +1270,47 @@ fun PhoneListScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
-                            Text(
-                                text = "${markedPhoneForComparison!!.ram}GB / ${markedPhoneForComparison!!.storage}GB",
-                                fontSize = 13.sp,
-                                color = Color(0xFF888888)
-                            )
+
+                            // If merged card with 2 variants, show variant selector
+                            if (markedMergedGroup != null && markedMergedGroup!!.variants.size > 1) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Select variant:",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF666666)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    markedMergedGroup!!.variants.forEach { variant ->
+                                        val isSelected = markedPhoneForComparison!!.ram == variant.ram &&
+                                                markedPhoneForComparison!!.storage == variant.storage
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                markedPhoneForComparison = mergedVariantToPhone(markedMergedGroup!!, variant)
+                                            },
+                                            label = {
+                                                Text(
+                                                    text = "${variant.ram}/${variant.storage}",
+                                                    fontSize = 12.sp
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFF2196F3),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "${markedPhoneForComparison!!.ram}GB / ${markedPhoneForComparison!!.storage}GB",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF888888)
+                                )
+                            }
                         }
                     }
 
@@ -1297,11 +1347,47 @@ fun PhoneListScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
-                            Text(
-                                text = "${phoneToCompareWith!!.ram}GB / ${phoneToCompareWith!!.storage}GB",
-                                fontSize = 13.sp,
-                                color = Color(0xFF888888)
-                            )
+
+                            // If merged card with 2 variants, show variant selector
+                            if (compareWithMergedGroup != null && compareWithMergedGroup!!.variants.size > 1) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Select variant:",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF666666)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    compareWithMergedGroup!!.variants.forEach { variant ->
+                                        val isSelected = phoneToCompareWith!!.ram == variant.ram &&
+                                                phoneToCompareWith!!.storage == variant.storage
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                phoneToCompareWith = mergedVariantToPhone(compareWithMergedGroup!!, variant)
+                                            },
+                                            label = {
+                                                Text(
+                                                    text = "${variant.ram}/${variant.storage}",
+                                                    fontSize = 12.sp
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFF2196F3),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "${phoneToCompareWith!!.ram}GB / ${phoneToCompareWith!!.storage}GB",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF888888)
+                                )
+                            }
                         }
                     }
                 }
@@ -1354,6 +1440,8 @@ fun PhoneListScreen(
                         showComparisonDialog = false
                         markedPhoneForComparison = null
                         phoneToCompareWith = null
+                        markedMergedGroup = null
+                        compareWithMergedGroup = null
                     }
                 ) {
                     Text("Compare", color = Color(0xFF2196F3))
@@ -1364,6 +1452,7 @@ fun PhoneListScreen(
                     onClick = {
                         showComparisonDialog = false
                         phoneToCompareWith = null
+                        compareWithMergedGroup = null
                     }
                 ) {
                     Text("Cancel")
@@ -1483,7 +1572,13 @@ fun PhoneListScreen(
                             phoneImages = phoneImagesMap[group.phoneDocId],
                             imageLoader = imageLoader,
                             layoutConfig = cardLayoutConfig,
-                            isMarkedForComparison = false,
+                            isMarkedForComparison = markedPhoneForComparison?.let { marked ->
+                                group.variants.any { variant ->
+                                    marked.phoneDocId == group.phoneDocId &&
+                                            marked.ram == variant.ram &&
+                                            marked.storage == variant.storage
+                                }
+                            } ?: false,
                             onClick = { variant, selectedColor ->
                                 // Navigate to detail activity with the selected variant
                                 val phone = mergedVariantToPhone(group, variant)
@@ -1491,7 +1586,29 @@ fun PhoneListScreen(
                                 navigateToPhoneDetail(context, phone, uniqueIndex, selectedColor)
                             },
                             onLongClick = { variant ->
-                                // Can implement comparison for merged view later
+                                val phone = mergedVariantToPhone(group, variant)
+                                val isThisMarked = markedPhoneForComparison?.let { marked ->
+                                    group.variants.any { v ->
+                                        marked.phoneDocId == group.phoneDocId &&
+                                                marked.ram == v.ram &&
+                                                marked.storage == v.storage
+                                    }
+                                } ?: false
+
+                                if (markedPhoneForComparison == null) {
+                                    // No phone marked yet - mark this one
+                                    markedPhoneForComparison = phone
+                                    markedMergedGroup = group
+                                } else if (isThisMarked) {
+                                    // User long-pressed the same card - unmark it
+                                    markedPhoneForComparison = null
+                                    markedMergedGroup = null
+                                } else {
+                                    // A different card is already marked - show comparison dialog
+                                    compareWithMergedGroup = group
+                                    phoneToCompareWith = mergedVariantToPhone(group, group.variants.first())
+                                    showComparisonDialog = true
+                                }
                             },
                             isAlternate = index % 2 == 1,
                             initialColorIndex = index % 2
@@ -1542,8 +1659,8 @@ fun PhoneListScreen(
                 }
             }
 
-            // Floating indicator when a phone is marked for comparison (only in expanded view)
-            if (markedPhoneForComparison != null && !useMergedView) {
+            // Floating indicator when a phone is marked for comparison
+            if (markedPhoneForComparison != null) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1566,7 +1683,10 @@ fun PhoneListScreen(
                         Surface(
                             modifier = Modifier
                                 .size(24.dp)
-                                .clickable { markedPhoneForComparison = null },
+                                .clickable {
+                                    markedPhoneForComparison = null
+                                    markedMergedGroup = null
+                                },
                             shape = CircleShape,
                             color = Color.White.copy(alpha = 0.2f)
                         ) {
