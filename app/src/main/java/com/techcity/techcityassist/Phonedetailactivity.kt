@@ -38,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.techcity.techcityassist.ui.theme.TechCityAssistTheme
 import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
@@ -75,12 +76,16 @@ class PhoneDetailActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val initialIndex = intent.getIntExtra(EXTRA_PHONE_INDEX, 0)
+        val initialManufacturer = intent.getStringExtra(EXTRA_MANUFACTURER) ?: ""
+        val initialModel = intent.getStringExtra(EXTRA_MODEL) ?: ""
         val initialSelectedColor = intent.getStringExtra(EXTRA_SELECTED_COLOR) ?: ""
 
         setContent {
             TechCityAssistTheme {
                 PhoneDetailScreen(
                     initialIndex = initialIndex,
+                    initialManufacturer = initialManufacturer,
+                    initialModel = initialModel,
                     initialSelectedColor = initialSelectedColor,
                     onBackPress = { finish() }
                 )
@@ -293,11 +298,16 @@ fun rememberDetailLayoutConfig(): DetailLayoutConfig {
 @Composable
 fun PhoneDetailScreen(
     initialIndex: Int,
+    initialManufacturer: String = "",
+    initialModel: String = "",
     initialSelectedColor: String = "",
     onBackPress: () -> Unit
 ) {
-    val phones = PhoneListHolder.uniquePhoneModels
-    val phoneImagesMapHolder = PhoneListHolder.phoneImagesMap
+    // Freeze the page list for this screen session; the live inventory
+    // listener can reshuffle PhoneListHolder at any moment and page indices
+    // must not shift under the user mid-swipe.
+    val phones = remember { PhoneListHolder.uniquePhoneModels }
+    val phoneImagesMapHolder = remember { PhoneListHolder.phoneImagesMap }
 
     if (phones.isEmpty()) {
         Box(
@@ -311,8 +321,20 @@ fun PhoneDetailScreen(
         return
     }
 
+    // Resolve the tapped phone by identity: the index computed at tap time
+    // can go stale if a live update reshuffles the list before this composes.
+    val startIndex = remember {
+        val byIdentity = if (initialManufacturer.isNotEmpty() && initialModel.isNotEmpty()) {
+            phones.indexOfFirst {
+                it.manufacturer.equals(initialManufacturer, ignoreCase = true) &&
+                        it.model.equals(initialModel, ignoreCase = true)
+            }
+        } else -1
+        (if (byIdentity >= 0) byIdentity else initialIndex).coerceIn(0, phones.size - 1)
+    }
+
     val phonePagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, phones.size - 1),
+        initialPage = startIndex,
         pageCount = { phones.size }
     )
 
@@ -326,12 +348,14 @@ fun PhoneDetailScreen(
         val phone = phones[page]
         val initialPhoneImages = phoneImagesMapHolder[phone.phoneDocId]
 
-        val colorForThisPage = if (page == initialIndex) initialSelectedColor else ""
+        val colorForThisPage = if (page == startIndex) initialSelectedColor else ""
 
         PhoneDetailContent(
             phone = phone,
             initialPhoneImages = initialPhoneImages,
-            initialSelectedColor = colorForThisPage
+            initialSelectedColor = colorForThisPage,
+            isCurrentPage = phonePagerState.currentPage == page,
+            onPhoneUnavailable = onBackPress
         )
     }
 }
@@ -341,7 +365,9 @@ fun PhoneDetailScreen(
 fun PhoneDetailContent(
     phone: Phone,
     initialPhoneImages: PhoneImages?,
-    initialSelectedColor: String = ""
+    initialSelectedColor: String = "",
+    isCurrentPage: Boolean = true,
+    onPhoneUnavailable: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
@@ -358,6 +384,16 @@ fun PhoneDetailContent(
     var allAvailableColors by remember(phone.phoneDocId) { mutableStateOf(phone.colors) }
 
     var variantColorsMap by remember(phone.phoneDocId) { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+
+    var isSoldOut by remember(phone.phoneDocId) { mutableStateOf(false) }
+
+    // Auto-close only while this phone is actually being viewed; a preloaded
+    // neighbor page that sells out closes when the user swipes to it.
+    LaunchedEffect(isSoldOut, isCurrentPage) {
+        if (isSoldOut && isCurrentPage) {
+            onPhoneUnavailable()
+        }
+    }
 
     var selectedColorName by remember(phone.phoneDocId) {
         mutableStateOf(
@@ -391,76 +427,132 @@ fun PhoneDetailContent(
         }
     }
 
-    LaunchedEffect(phone.manufacturer, phone.model) {
+    DisposableEffect(phone.manufacturer, phone.model) {
+        var registration: ListenerRegistration? = null
+
         if (phone.manufacturer.isNotEmpty() && phone.model.isNotEmpty()) {
-            try {
-                val db = FirebaseFirestore.getInstance()
-                val inventoryResult = db.collection("inventory")
-                    .whereEqualTo("manufacturer", phone.manufacturer)
-                    .whereEqualTo("model", phone.model)
-                    .whereIn("status", listOf("On-Hand", "On-Display"))
-                    .get()
-                    .await()
+            val db = FirebaseFirestore.getInstance()
+            // Live listener: keeps variants/colors in sync as units are sold
+            // (status flips to "Sold" and the doc leaves this query) or added.
+            registration = db.collection("inventory")
+                .whereEqualTo("manufacturer", phone.manufacturer)
+                .whereEqualTo("model", phone.model)
+                .whereIn("status", AVAILABLE_INVENTORY_STATUSES)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e("PhoneDetail", "Error listening to variants", error)
+                        // Keep whatever is on screen; fall back to intent-time
+                        // data only if nothing was loaded yet.
+                        if (variants.isEmpty()) {
+                            variants = listOf(
+                                PhoneVariant(
+                                    ram = phone.ram,
+                                    storage = phone.storage,
+                                    retailPrice = phone.retailPrice,
+                                    dealersPrice = 0.0
+                                )
+                            )
+                            allAvailableColors = phone.colors
+                            variantColorsMap = mapOf("${phone.ram}|${phone.storage}" to phone.colors)
+                        }
+                        isLoadingVariants = false
+                        return@addSnapshotListener
+                    }
+                    if (snapshot == null) return@addSnapshotListener
 
-                val variantMap = mutableMapOf<String, PhoneVariant>()
-                val allColors = mutableSetOf<String>()
-                val variantColorsTemp = mutableMapOf<String, MutableSet<String>>()
+                    val fromCache = snapshot.metadata.isFromCache
 
-                for (doc in inventoryResult.documents) {
-                    val ram = doc.getString("ram") ?: ""
-                    val storage = doc.getString("storage") ?: ""
-                    val retailPrice = doc.getDouble("retailPrice") ?: 0.0
-                    val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
-                    val color = doc.getString("color") ?: ""
-
-                    if (color.isNotEmpty()) {
-                        allColors.add(color)
+                    if (snapshot.isEmpty) {
+                        // Only the server can declare a phone sold out: the
+                        // initial cache-served event is empty whenever this
+                        // query has never been stored in the local cache.
+                        if (!fromCache) {
+                            isSoldOut = true
+                            isLoadingVariants = false
+                        }
+                        return@addSnapshotListener
                     }
 
-                    val key = "$ram|$storage"
-
-                    if (color.isNotEmpty()) {
-                        variantColorsTemp.getOrPut(key) { mutableSetOf() }.add(color)
+                    // A cache-served snapshot can be partial; use it only to
+                    // paint initial data, never to overwrite loaded state.
+                    if (fromCache && variants.isNotEmpty()) return@addSnapshotListener
+                    if (!fromCache) {
+                        isSoldOut = false
                     }
 
-                    if (!variantMap.containsKey(key)) {
-                        variantMap[key] = PhoneVariant(
-                            ram = ram,
-                            storage = storage,
-                            retailPrice = retailPrice,
-                            dealersPrice = dealersPrice
-                        )
+                    val variantMap = mutableMapOf<String, PhoneVariant>()
+                    val allColors = mutableSetOf<String>()
+                    val variantColorsTemp = mutableMapOf<String, MutableSet<String>>()
+
+                    for (doc in snapshot.documents) {
+                        val ram = doc.getString("ram") ?: ""
+                        val storage = doc.getString("storage") ?: ""
+                        val retailPrice = doc.getDouble("retailPrice") ?: 0.0
+                        val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
+                        val color = doc.getString("color") ?: ""
+
+                        if (color.isNotEmpty()) {
+                            allColors.add(color)
+                        }
+
+                        val key = "$ram|$storage"
+
+                        if (color.isNotEmpty()) {
+                            variantColorsTemp.getOrPut(key) { mutableSetOf() }.add(color)
+                        }
+
+                        if (!variantMap.containsKey(key)) {
+                            variantMap[key] = PhoneVariant(
+                                ram = ram,
+                                storage = storage,
+                                retailPrice = retailPrice,
+                                dealersPrice = dealersPrice
+                            )
+                        }
                     }
+
+                    variants = variantMap.values.sortedBy { it.retailPrice }
+
+                    // Show only colors present in the live snapshot: keep the
+                    // intent-time ordering for colors still available, then
+                    // append any colors that list didn't know about.
+                    val orderedColors = mutableListOf<String>()
+                    phone.colors.forEach { color ->
+                        if (allColors.any { it.equals(color, ignoreCase = true) } &&
+                            orderedColors.none { it.equals(color, ignoreCase = true) }
+                        ) {
+                            orderedColors.add(color)
+                        }
+                    }
+                    allColors.forEach { color ->
+                        if (orderedColors.none { it.equals(color, ignoreCase = true) }) {
+                            orderedColors.add(color)
+                        }
+                    }
+                    allAvailableColors = orderedColors
+
+                    variantColorsMap = variantColorsTemp.mapValues { (_, colors) ->
+                        orderedColors.filter { ordered -> colors.any { it.equals(ordered, ignoreCase = true) } }
+                    }
+
+                    // Fall back when nothing is selected or the server
+                    // confirms the selected color sold out; a partial cache
+                    // snapshot must not switch the user's chosen color.
+                    if (selectedColorName.isEmpty() ||
+                        (!fromCache && orderedColors.none { it.equals(selectedColorName, ignoreCase = true) })
+                    ) {
+                        selectedColorName = orderedColors.firstOrNull() ?: ""
+                    }
+
+                    isLoadingVariants = false
                 }
-
-                variants = variantMap.values.sortedBy { it.retailPrice }
-
-                val orderedColors = phone.colors.toMutableList()
-                allColors.forEach { color ->
-                    if (!orderedColors.any { it.equals(color, ignoreCase = true) }) {
-                        orderedColors.add(color)
-                    }
-                }
-                allAvailableColors = orderedColors
-
-                variantColorsMap = variantColorsTemp.mapValues { (_, colors) ->
-                    orderedColors.filter { ordered -> colors.any { it.equals(ordered, ignoreCase = true) } }
-                }
-            } catch (e: Exception) {
-                Log.e("PhoneDetail", "Error fetching variants", e)
-                variants = listOf(
-                    PhoneVariant(
-                        ram = phone.ram,
-                        storage = phone.storage,
-                        retailPrice = phone.retailPrice,
-                        dealersPrice = 0.0
-                    )
-                )
-                allAvailableColors = phone.colors
-                variantColorsMap = mapOf("${phone.ram}|${phone.storage}" to phone.colors)
-            }
+        } else {
+            isLoadingVariants = false
         }
-        isLoadingVariants = false
+
+        onDispose {
+            registration?.remove()
+        }
     }
 
     val currentColor = selectedColorName.ifEmpty { allAvailableColors.firstOrNull() ?: "" }

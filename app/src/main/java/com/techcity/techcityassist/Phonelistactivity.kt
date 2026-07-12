@@ -83,6 +83,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +102,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.techcity.techcityassist.ui.theme.TechCityAssistTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -906,29 +908,138 @@ fun PhoneListScreen(
         PhoneListHolder.phoneImagesMap = phoneImagesMap
     }
 
+    // Revalidate comparison selections when the live listener updates the
+    // list: drop a marked/compared phone that sold out, refresh stale data.
+    LaunchedEffect(phones, mergedPhoneGroups) {
+        fun refreshOf(selection: Phone): Phone? = phones.firstOrNull {
+            it.manufacturer == selection.manufacturer &&
+                    it.model == selection.model &&
+                    it.ram == selection.ram &&
+                    it.storage == selection.storage
+        }
+
+        markedPhoneForComparison?.let { marked ->
+            val refreshed = refreshOf(marked)
+            if (refreshed == null) {
+                markedPhoneForComparison = null
+                markedMergedGroup = null
+            } else {
+                if (refreshed != marked) markedPhoneForComparison = refreshed
+                markedMergedGroup = markedMergedGroup?.let { old ->
+                    mergedPhoneGroups.firstOrNull { group ->
+                        group.phoneDocId == old.phoneDocId &&
+                                group.variants.any { it.ram == marked.ram && it.storage == marked.storage }
+                    } ?: old
+                }
+            }
+        }
+        phoneToCompareWith?.let { compare ->
+            val refreshed = refreshOf(compare)
+            if (refreshed == null) {
+                phoneToCompareWith = null
+                compareWithMergedGroup = null
+                showComparisonDialog = false
+            } else if (refreshed != compare) {
+                phoneToCompareWith = refreshed
+            }
+        }
+    }
+
     // ============================================
-    // DATA LOADING - CHECK CACHE FIRST
+    // DATA LOADING - CHECK CACHE FIRST, THEN LISTEN LIVE
     // ============================================
-    LaunchedEffect(Unit) {
+    DisposableEffect(Unit) {
+        var inventoryListener: ListenerRegistration? = null
+        var disposed = false
+        // Colors seen per phoneDocId in the previous snapshot; detects newly
+        // arrived colors whose image may be missing from a cached images doc.
+        var knownColorsByDoc = emptyMap<String, Set<String>>()
+
+        val db = FirebaseFirestore.getInstance()
+        val cacheHit = PhoneListHolder.isSynced && PhoneListHolder.allDevices.isNotEmpty()
+
         // CHECK IF WE HAVE CACHED DATA
-        if (PhoneListHolder.isSynced && PhoneListHolder.allDevices.isNotEmpty()) {
+        if (cacheHit) {
             Log.d("PhoneList", "Using cached data (${PhoneListHolder.allDevices.size} devices)")
             usedCache = true
 
-            // Use cached data - instant!
+            // Use cached data - instant! The live inventory listener below
+            // still attaches and silently corrects anything sold or restocked
+            // since the last sync.
             phones = PhoneListHolder.allDevices
             phoneImagesMap = PhoneListHolder.allPhoneImages
             isLoading = false
-            return@LaunchedEffect
+        } else {
+            Log.d("PhoneList", "No cached data, fetching from Firebase...")
+            usedCache = false
         }
 
-        // NO CACHED DATA - Fetch from Firebase (original behavior)
-        Log.d("PhoneList", "No cached data, fetching from Firebase...")
-        usedCache = false
+        // Live listener: a sale flips an inventory doc's status to "Sold",
+        // which drops it from this query and re-triggers the snapshot. Also
+        // fires for restocks/new arrivals.
+        fun attachInventoryListener(specsMap: Map<String, DeviceSpecs>) {
+            if (disposed) return
+            inventoryListener = db.collection("inventory")
+                .whereIn("status", AVAILABLE_INVENTORY_STATUSES)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        // Keep the last known list on screen; Firestore
+                        // resumes the listener when connectivity returns.
+                        Log.e("Firestore", "Inventory listener error", error)
+                        isLoading = false
+                        return@addSnapshotListener
+                    }
+                    if (snapshot == null) return@addSnapshotListener
 
-        val db = FirebaseFirestore.getInstance()
+                    // Cache-served snapshots can be empty or partial (offline,
+                    // cold local cache); only server snapshots may replace
+                    // data already on screen. A non-empty cache snapshot is
+                    // still used as first paint when there is nothing to show.
+                    val fromCache = snapshot.metadata.isFromCache
+                    if (fromCache && phones.isNotEmpty()) return@addSnapshotListener
 
-        if (TEST_MODE) {
+                    val grouped = groupInventoryDocs(snapshot.documents, specsMap)
+                    if (fromCache && grouped.isEmpty()) return@addSnapshotListener
+
+                    phones = grouped
+                    if (!fromCache) {
+                        // Only server-confirmed data may replace the synced cache.
+                        PhoneListHolder.updateDevices(grouped)
+                    }
+
+                    // Fetch images for new devices, and refetch an existing
+                    // images doc when a model gains a color it doesn't cover.
+                    val colorsByDoc = mutableMapOf<String, MutableSet<String>>()
+                    grouped.forEach { p ->
+                        if (p.phoneDocId.isNotEmpty()) {
+                            colorsByDoc.getOrPut(p.phoneDocId) { mutableSetOf() }
+                                .addAll(p.colors.map { it.lowercase() })
+                        }
+                    }
+                    val idsToFetch = colorsByDoc.mapNotNull { (docId, colors) ->
+                        val images = phoneImagesMap[docId]
+                        val newColors = colors - (knownColorsByDoc[docId] ?: emptySet())
+                        when {
+                            images == null -> docId
+                            newColors.any { images.getImagesForColor(it) == null } -> docId
+                            else -> null
+                        }
+                    }
+                    knownColorsByDoc = colorsByDoc
+
+                    if (idsToFetch.isNotEmpty()) {
+                        fetchAllPhoneImages(db, idsToFetch) { imagesMap ->
+                            phoneImagesMap = phoneImagesMap + imagesMap
+                            PhoneListHolder.addImages(imagesMap)
+                            isLoading = false
+                        }
+                    } else {
+                        isLoading = false
+                    }
+                }
+        }
+
+        if (TEST_MODE && !cacheHit) {
             db.collection("phones").document(TEST_PHONE_DOC_ID)
                 .get()
                 .addOnSuccessListener { phoneDoc ->
@@ -1043,10 +1154,20 @@ fun PhoneListScreen(
                     Log.e("Firestore", "Error getting test phone", e)
                     isLoading = false
                 }
+        } else if (TEST_MODE) {
+            // Warm cache + TEST_MODE: keep showing the cached data untouched
+            // (matches the pre-listener early-return behavior).
+        } else if (cacheHit) {
+            // The cached Phone objects embed every spec field, so the specs
+            // map can be rebuilt locally — no phones-collection read, and the
+            // listener attaches immediately.
+            attachInventoryListener(specsMapFromDevices(PhoneListHolder.allDevices))
         } else {
             db.collection("phones")
                 .get()
                 .addOnSuccessListener { phonesResult ->
+                    if (disposed) return@addOnSuccessListener
+
                     val specsMap = phonesResult.documents.associate { doc ->
                         val key = "${doc.getString("manufacturer") ?: ""}|${doc.getString("model") ?: ""}"
                         key to DeviceSpecs(
@@ -1068,102 +1189,18 @@ fun PhoneListScreen(
                         )
                     }
 
-                    db.collection("inventory")
-                        .whereIn("status", listOf("On-Hand", "On-Display"))
-                        .get()
-                        .addOnSuccessListener { inventoryResult ->
-                            val grouped = inventoryResult.documents
-                                .mapNotNull { doc ->
-                                    val manufacturer = doc.getString("manufacturer") ?: return@mapNotNull null
-                                    val model = doc.getString("model") ?: return@mapNotNull null
-                                    val ram = doc.getString("ram") ?: ""
-                                    val storage = doc.getString("storage") ?: ""
-                                    val color = doc.getString("color") ?: ""
-                                    val retailPrice = doc.getDouble("retailPrice") ?: 0.0
-                                    val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
-                                    val docId = doc.id
-
-                                    val key = "$manufacturer|$model|$ram|$storage"
-                                    Pair(key, mapOf(
-                                        "manufacturer" to manufacturer,
-                                        "model" to model,
-                                        "ram" to ram,
-                                        "storage" to storage,
-                                        "color" to color,
-                                        "retailPrice" to retailPrice,
-                                        "dealersPrice" to dealersPrice,
-                                        "docId" to docId
-                                    ))
-                                }
-                                .groupBy({ it.first }, { it.second })
-                                .map { (key, items) ->
-                                    val parts = key.split("|")
-                                    val manufacturer = parts[0]
-                                    val model = parts[1]
-                                    val ram = parts[2]
-                                    val storage = parts[3]
-
-                                    val colors = items.map { it["color"] as String }.distinct().filter { it.isNotEmpty() }
-                                    val inventoryDocIds = items.map { it["docId"] as String }
-                                    val retailPrice = items.firstOrNull()?.get("retailPrice") as? Double ?: 0.0
-
-                                    val specsKey = "$manufacturer|$model"
-                                    val specs = specsMap[specsKey] ?: DeviceSpecs()
-
-                                    Phone(
-                                        manufacturer = manufacturer,
-                                        model = model,
-                                        ram = ram,
-                                        storage = storage,
-                                        retailPrice = retailPrice,
-                                        colors = colors,
-                                        stockCount = items.size,
-                                        chipset = specs.chipset,
-                                        frontCamera = specs.frontCamera,
-                                        rearCamera = specs.rearCamera,
-                                        batteryCapacity = specs.battery,
-                                        displayType = specs.display,
-                                        displaySize = specs.displaySize,
-                                        os = specs.os,
-                                        network = specs.network,
-                                        resolution = specs.resolution,
-                                        refreshRate = specs.refreshRate,
-                                        wiredCharging = specs.wiredCharging,
-                                        inventoryDocIds = inventoryDocIds,
-                                        phoneDocId = specs.docId,
-                                        variants = emptyList(),
-                                        deviceType = specs.deviceType,
-                                        gpu = specs.gpu,
-                                        cpu = specs.cpu
-                                    )
-                                }
-                                .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))
-
-                            phones = grouped
-
-                            // Fetch all phone images
-                            val phoneDocIds = grouped.mapNotNull {
-                                it.phoneDocId.ifEmpty { null }
-                            }.distinct()
-
-                            if (phoneDocIds.isNotEmpty()) {
-                                fetchAllPhoneImages(db, phoneDocIds) { imagesMap ->
-                                    phoneImagesMap = imagesMap
-                                    isLoading = false
-                                }
-                            } else {
-                                isLoading = false
-                            }
-                        }
-                        .addOnFailureListener { exception ->
-                            Log.e("Firestore", "Error getting inventory", exception)
-                            isLoading = false
-                        }
+                    attachInventoryListener(specsMap)
                 }
                 .addOnFailureListener { exception ->
                     Log.e("Firestore", "Error getting phones specs", exception)
                     isLoading = false
                 }
+        }
+
+        onDispose {
+            disposed = true
+            inventoryListener?.remove()
+            Log.d("PhoneList", "Inventory listener detached")
         }
     }
 
@@ -1835,9 +1872,15 @@ fun PhoneCard(
     // Use precomputed color data from sync (avoids filesystem I/O during scroll)
     // Falls back to computing on-the-fly if precomputed data not available
     val precomputedKey = PhoneListHolder.getColorDataKey(phone)
-    var colorsWithImages by remember(phone.phoneDocId, phone.ram, phone.storage) {
+    var colorsWithImages by remember(phone.phoneDocId, phone.ram, phone.storage, phone.colors, phoneImages) {
         mutableStateOf(
+            // Precomputed data is from sync time; use it only while it still
+            // covers every current color (live updates can add colors or
+            // devices it doesn't know about).
             PhoneListHolder.precomputedColorData[precomputedKey]
+                ?.takeIf { data ->
+                    phone.colors.all { c -> data.any { it.colorName.equals(c, ignoreCase = true) } }
+                }
                 ?: phone.colors.map { colorName ->
                     val images = phoneImages?.getImagesForColor(colorName)
                     val remoteUrl = images?.lowRes?.ifEmpty { images.highRes }
