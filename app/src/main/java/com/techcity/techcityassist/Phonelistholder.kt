@@ -90,6 +90,26 @@ object PhoneListHolder {
     }
 
     /**
+     * Refresh the device list from the live inventory listener.
+     * Leaves isSynced/lastSyncTime alone — those mark the full daily sync.
+     * SyncDataManager's on-disk files are also left as-is: the listener's
+     * first snapshot corrects any stale data on the next app launch.
+     */
+    fun updateDevices(devices: List<Phone>) {
+        allDevices = devices
+    }
+
+    /**
+     * Merge newly fetched images (e.g. for devices added while the live
+     * listener is active) into the cached image map.
+     */
+    fun addImages(images: Map<String, PhoneImages>) {
+        if (images.isNotEmpty()) {
+            allPhoneImages = allPhoneImages + images
+        }
+    }
+
+    /**
      * Get devices filtered by type (phone, tablet, laptop)
      */
     fun getDevicesByType(deviceType: String): List<Phone> {

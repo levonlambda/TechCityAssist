@@ -519,79 +519,14 @@ suspend fun syncAllData(
 
     // Step 2: Fetch all inventory
     val inventoryResult = db.collection("inventory")
-        .whereIn("status", listOf("On-Hand", "On-Display"))
+        .whereIn("status", AVAILABLE_INVENTORY_STATUSES)
         .get()
         .await()
 
     onProgress("Processing ${inventoryResult.size()} inventory items...")
 
-    // Step 3: Group inventory into devices
-    val grouped = inventoryResult.documents
-        .mapNotNull { doc ->
-            val manufacturer = doc.getString("manufacturer") ?: return@mapNotNull null
-            val model = doc.getString("model") ?: return@mapNotNull null
-            val ram = doc.getString("ram") ?: ""
-            val storage = doc.getString("storage") ?: ""
-            val color = doc.getString("color") ?: ""
-            val retailPrice = doc.getDouble("retailPrice") ?: 0.0
-            val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
-            val docId = doc.id
-
-            val key = "$manufacturer|$model|$ram|$storage"
-            Pair(key, mapOf(
-                "manufacturer" to manufacturer,
-                "model" to model,
-                "ram" to ram,
-                "storage" to storage,
-                "color" to color,
-                "retailPrice" to retailPrice,
-                "dealersPrice" to dealersPrice,
-                "docId" to docId
-            ))
-        }
-        .groupBy({ it.first }, { it.second })
-        .map { (key, items) ->
-            val parts = key.split("|")
-            val manufacturer = parts[0]
-            val model = parts[1]
-            val ram = parts[2]
-            val storage = parts[3]
-
-            val colors = items.map { it["color"] as String }.distinct().filter { it.isNotEmpty() }
-            val inventoryDocIds = items.map { it["docId"] as String }
-            val retailPrice = items.firstOrNull()?.get("retailPrice") as? Double ?: 0.0
-
-            val specsKey = "$manufacturer|$model"
-            val specs = specsMap[specsKey] ?: DeviceSpecs()
-
-            Phone(
-                manufacturer = manufacturer,
-                model = model,
-                ram = ram,
-                storage = storage,
-                retailPrice = retailPrice,
-                colors = colors,
-                stockCount = items.size,
-                chipset = specs.chipset,
-                frontCamera = specs.frontCamera,
-                rearCamera = specs.rearCamera,
-                batteryCapacity = specs.battery,
-                displayType = specs.display,
-                displaySize = specs.displaySize,
-                os = specs.os,
-                network = specs.network,
-                resolution = specs.resolution,
-                refreshRate = specs.refreshRate,
-                wiredCharging = specs.wiredCharging,
-                inventoryDocIds = inventoryDocIds,
-                phoneDocId = specs.docId,
-                variants = emptyList(),
-                deviceType = specs.deviceType,
-                gpu = specs.gpu,
-                cpu = specs.cpu
-            )
-        }
-        .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))
+    // Step 3: Group inventory into devices (shared with the live listener)
+    val grouped = groupInventoryDocs(inventoryResult.documents, specsMap)
 
     onProgress("Fetching image URLs for ${grouped.size} devices...")
 
