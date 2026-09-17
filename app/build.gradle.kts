@@ -68,6 +68,8 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.6.0"))
     // Firestore
     implementation("com.google.firebase:firebase-firestore")
+    // Firebase Auth (console-managed username/password accounts)
+    implementation("com.google.firebase:firebase-auth")
     // Firebase Storage
     implementation("com.google.firebase:firebase-storage")
 

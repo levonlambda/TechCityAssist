@@ -28,6 +28,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +76,16 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+
+        // Auth gate: Firebase Auth persists the session on-device, so this is
+        // an instant local check — the login screen appears only when no user
+        // is signed in (first launch, after sign-out, or after revocation).
+        if (!Authmanager.isSignedIn()) {
+            isDataReady = true  // release the splash before leaving
+            startActivity(Intent(this, LoginActivity::class.java))
+            finish()
+            return
+        }
 
         // Force portrait orientation (Android 16+ ignores manifest attribute)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -303,7 +314,11 @@ fun HomeScreen(
                             lastSyncTime = SyncDataManager.getTimeSinceSync(context)
                         } catch (e: Exception) {
                             Log.e("MainActivity", "Sync failed", e)
-                            syncError = "Sync failed: ${e.message}"
+                            // Revoked access surfaces as PERMISSION_DENIED once
+                            // the token expires; sign out and return to login.
+                            if (!Authmanager.handleFirestoreError(context, e)) {
+                                syncError = "Sync failed: ${e.message}"
+                            }
                         } finally {
                             isSyncing = false
                             syncStatus = ""
@@ -338,7 +353,21 @@ fun HomeScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Sign out: clears cached data and returns to the login screen
+            TextButton(
+                onClick = { Authmanager.forceSignOut(context, accessRemoved = false) },
+                enabled = !isSyncing
+            ) {
+                Text(
+                    text = "Sign out",
+                    fontSize = 13.sp,
+                    color = Color(0xFF666666)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
         // ============================================

@@ -440,6 +440,11 @@ fun PhoneDetailContent(
                 .whereIn("status", AVAILABLE_INVENTORY_STATUSES)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
+                        // Access revoked (token expired after console delete):
+                        // sign out and return to the login screen.
+                        if (Authmanager.handleFirestoreError(context, error)) {
+                            return@addSnapshotListener
+                        }
                         Log.e("PhoneDetail", "Error listening to variants", error)
                         // Keep whatever is on screen; fall back to intent-time
                         // data only if nothing was loaded yet.
