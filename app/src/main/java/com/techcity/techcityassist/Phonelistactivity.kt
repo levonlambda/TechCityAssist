@@ -983,6 +983,11 @@ fun PhoneListScreen(
                 .whereIn("status", AVAILABLE_INVENTORY_STATUSES)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
+                        // Access revoked (token expired after console delete):
+                        // sign out and return to the login screen.
+                        if (Authmanager.handleFirestoreError(context, error)) {
+                            return@addSnapshotListener
+                        }
                         // Keep the last known list on screen; Firestore
                         // resumes the listener when connectivity returns.
                         Log.e("Firestore", "Inventory listener error", error)
