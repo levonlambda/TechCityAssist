@@ -5,12 +5,17 @@ import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,24 +36,32 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.firebase.firestore.FirebaseFirestore
 import com.techcity.techcityassist.ui.theme.TechCityAssistTheme
 import kotlinx.coroutines.Dispatchers
@@ -123,6 +137,27 @@ fun HomeScreen(
 
     // Loading state for initial local data check
     var isCheckingLocalData by remember { mutableStateOf(true) }
+
+    // Which category's brand list is showing; null = the three category buttons.
+    // Saveable so activity recreation doesn't snap back to the category buttons.
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Double-tap guard: set when a brand launches PhoneListActivity, cleared
+    // when the home screen resumes (i.e. the user navigated back).
+    var hasLaunchedList by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) hasLaunchedList = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // System back closes the brand list instead of leaving the app
+    BackHandler(enabled = selectedCategory != null) {
+        selectedCategory = null
+    }
 
     // On startup: Check for local data from today
     LaunchedEffect(Unit) {
@@ -208,49 +243,183 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(80.dp))
 
-            // Phones button - disabled until synced
-            HomeButton(
-                text = "Phones",
-                onClick = {
-                    val intent = Intent(context, PhoneListActivity::class.java).apply {
-                        putExtra("DEVICE_TYPE", "phone")
+            val category = selectedCategory
+
+            // Everything below the logo shares one weighted region that is
+            // identical in both modes, so the logo position never shifts
+            // between the category buttons and the brand list
+            Column(
+                modifier = Modifier
+                    .weight(2f)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+            if (category == null) {
+                // Phones button - disabled until synced
+                HomeButton(
+                    text = "Phones",
+                    onClick = { selectedCategory = "phone" },
+                    enabled = isSynced && !isSyncing && !isCheckingLocalData
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Tablets button - disabled until synced
+                HomeButton(
+                    text = "Tablets",
+                    onClick = { selectedCategory = "tablet" },
+                    enabled = isSynced && !isSyncing && !isCheckingLocalData
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Laptops button - disabled until synced
+                HomeButton(
+                    text = "Laptops",
+                    onClick = { selectedCategory = "laptop" },
+                    enabled = isSynced && !isSyncing && !isCheckingLocalData
+                )
+
+                // Bottom spacer - larger to push content up
+                Spacer(modifier = Modifier.weight(1f))
+            } else {
+                // Brand buttons for the tapped category, same set and order as
+                // the filter chips in PhoneListActivity
+                val brands = remember(category, PhoneListHolder.lastSyncTime) {
+                    sortManufacturersWithPriority(
+                        PhoneListHolder.getDevicesByType(category)
+                            .map { it.manufacturer }
+                            .filter { it.isNotBlank() && !it.equals("techcity", ignoreCase = true) }
+                            .distinct()
+                    )
+                }
+                val categoryLabel = when (category) {
+                    "phone" -> "phones"
+                    "tablet" -> "tablets"
+                    "laptop" -> "laptops"
+                    else -> "devices"
+                }
+
+                if (brands.isEmpty()) {
+                    Text(
+                        text = "No $categoryLabel available",
+                        fontSize = 16.sp,
+                        color = Color(0xFF666666)
+                    )
+                } else {
+                    // Up to 5 brands: single column matching the category buttons.
+                    // More than 5: two-column grid so ~10 fit without scrolling;
+                    // scrolling only kicks in beyond that.
+                    val launchBrand: (String) -> Unit = { brand ->
+                        if (!hasLaunchedList) {
+                            hasLaunchedList = true
+                            val intent = Intent(context, PhoneListActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra("DEVICE_TYPE", category)
+                                putExtra("SELECTED_BRAND", brand)
+                            }
+                            context.startActivity(intent)
+                        }
                     }
-                    context.startActivity(intent)
-                },
-                enabled = isSynced && !isSyncing && !isCheckingLocalData
-            )
+                    val useTwoColumns = brands.size > 5
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Tablets button - disabled until synced
-            HomeButton(
-                text = "Tablets",
-                onClick = {
-                    val intent = Intent(context, PhoneListActivity::class.java).apply {
-                        putExtra("DEVICE_TYPE", "tablet")
+                    Column(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (useTwoColumns) {
+                            brands.chunked(2).forEachIndexed { rowIndex, rowBrands ->
+                                if (rowIndex > 0) {
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+                                Row(
+                                    // widthIn must precede fillMaxWidth: once
+                                    // fillMaxWidth fixes the width, a later max
+                                    // cap is ignored. Capped row -> ~226dp wide,
+                                    // ~92dp tall pills, so 5+ rows fit on screen.
+                                    modifier = Modifier
+                                        .widthIn(max = 520.dp)
+                                        .fillMaxWidth(0.9f),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    rowBrands.forEach { brand ->
+                                        val logoRes = brandLogoRes(brand)
+                                        if (logoRes != null) {
+                                            BrandLogoButton(
+                                                logoRes = logoRes,
+                                                brand = brand,
+                                                onClick = { launchBrand(brand) },
+                                                enabled = !isSyncing,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        } else {
+                                            HomeButton(
+                                                text = brand,
+                                                onClick = { launchBrand(brand) },
+                                                enabled = !isSyncing,
+                                                modifier = Modifier.weight(1f),
+                                                fontSize = 18.sp
+                                            )
+                                        }
+                                    }
+                                    // Keep a lone last button the same width as the others
+                                    if (rowBrands.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        } else {
+                            brands.forEachIndexed { index, brand ->
+                                if (index > 0) {
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+                                val logoRes = brandLogoRes(brand)
+                                if (logoRes != null) {
+                                    // Category-button width; height is the natural
+                                    // pill height (~130dp) reduced ~24%, so the pill
+                                    // is center-cropped at top and bottom
+                                    BrandLogoButton(
+                                        logoRes = logoRes,
+                                        brand = brand,
+                                        onClick = { launchBrand(brand) },
+                                        enabled = !isSyncing,
+                                        modifier = Modifier
+                                            .width(320.dp)
+                                            .height(100.dp),
+                                        keepAspect = false
+                                    )
+                                } else {
+                                    HomeButton(
+                                        text = brand,
+                                        onClick = { launchBrand(brand) },
+                                        enabled = !isSyncing
+                                    )
+                                }
+                            }
+                        }
                     }
-                    context.startActivity(intent)
-                },
-                enabled = isSynced && !isSyncing && !isCheckingLocalData
-            )
+                }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // Laptops button - disabled until synced
-            HomeButton(
-                text = "Laptops",
-                onClick = {
-                    val intent = Intent(context, PhoneListActivity::class.java).apply {
-                        putExtra("DEVICE_TYPE", "laptop")
-                    }
-                    context.startActivity(intent)
-                },
-                enabled = isSynced && !isSyncing && !isCheckingLocalData
-            )
+                TextButton(onClick = { selectedCategory = null }) {
+                    Text(
+                        text = "← BACK",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF666666)
+                    )
+                }
 
-            // Bottom spacer - larger to push content up
-            Spacer(modifier = Modifier.weight(2f))
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
+            // Sync controls and status only show alongside the category
+            // buttons; the brand view uses that space for the brand list
+            if (category == null) {
             // Sync status text
             if (isSynced && !isCheckingLocalData) {
                 Text(
@@ -368,6 +537,8 @@ fun HomeScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            } // end category-only sync section
+            } // end weighted content region
         }
 
         // ============================================
@@ -770,18 +941,60 @@ private fun parsePhoneImagesDocumentSync(docId: String, data: Map<String, Any>?)
     }
 }
 
+// Bundled brand logo drawables (trimmed pill images); brands without a
+// logo fall back to a text HomeButton
+fun brandLogoRes(brand: String): Int? = when (brand.lowercase()) {
+    "acer" -> R.drawable.brand_acer
+    "apple" -> R.drawable.brand_apple
+    "honor" -> R.drawable.brand_honor
+    "infinix" -> R.drawable.brand_infinix
+    "itel" -> R.drawable.brand_itel
+    "oppo" -> R.drawable.brand_oppo
+    "realme" -> R.drawable.brand_realme
+    "samsung" -> R.drawable.brand_samsung
+    "tecno" -> R.drawable.brand_tecno
+    "vivo" -> R.drawable.brand_vivo
+    "xiaomi" -> R.drawable.brand_xiaomi
+    else -> null
+}
+
+@Composable
+fun BrandLogoButton(
+    logoRes: Int,
+    brand: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    keepAspect: Boolean = true
+) {
+    Image(
+        painter = painterResource(id = logoRes),
+        contentDescription = brand,
+        // keepAspect: fill the slot's width at the logo's natural 640x261
+        // proportions. Otherwise the caller fixes the size and the pill is
+        // center-cropped vertically to fill it without distorting the text.
+        contentScale = if (keepAspect) ContentScale.Fit else ContentScale.Crop,
+        alpha = if (enabled) 1f else 0.4f,
+        modifier = modifier
+            .then(if (keepAspect) Modifier.aspectRatio(640f / 261f) else Modifier)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+    )
+}
+
 @Composable
 fun HomeButton(
     text: String,
     onClick: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier.width(320.dp),
+    fontSize: TextUnit = 22.sp
 ) {
     // Matching PhoneListActivity FilterChip style - white background with border
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier
-            .width(320.dp)
+        modifier = modifier
             .height(56.dp)
             .border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
@@ -798,8 +1011,9 @@ fun HomeButton(
     ) {
         Text(
             text = text.uppercase(),
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = fontSize,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
 }
