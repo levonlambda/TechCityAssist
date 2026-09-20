@@ -177,9 +177,12 @@ class PhoneListActivity : ComponentActivity() {
         // Get device type from intent
         val deviceType = intent.getStringExtra("DEVICE_TYPE") ?: "phone"
 
+        // Optional brand pre-selection from the home screen's brand buttons
+        val initialBrand = intent.getStringExtra("SELECTED_BRAND")
+
         setContent {
             TechCityAssistTheme {
-                MainScreen(deviceType = deviceType)
+                MainScreen(deviceType = deviceType, initialBrand = initialBrand)
             }
         }
     }
@@ -317,7 +320,7 @@ fun generatePriceListText(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(deviceType: String = "phone") {
+fun MainScreen(deviceType: String = "phone", initialBrand: String? = null) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
 
@@ -328,8 +331,9 @@ fun MainScreen(deviceType: String = "phone") {
     var minPriceInput by remember { mutableStateOf("") }
     var maxPriceInput by remember { mutableStateOf("") }
 
-    // Manufacturer filter state
-    var selectedManufacturer by remember { mutableStateOf("All") }
+    // Manufacturer filter state (seeded from the home screen's brand selection;
+    // validated against the loaded chip list in onManufacturersLoaded)
+    var selectedManufacturer by remember { mutableStateOf(initialBrand ?: "All") }
 
     // Dynamic manufacturer list based on device type (will be populated from data)
     var manufacturerFilters by remember { mutableStateOf(listOf("All")) }
@@ -656,6 +660,16 @@ fun MainScreen(deviceType: String = "phone") {
             onManufacturersLoaded = { manufacturers ->
                 // Sort with priority ordering, then prepend "All"
                 manufacturerFilters = listOf("All") + sortManufacturersWithPriority(manufacturers)
+                // A pre-selected brand must match a chip exactly for highlighting
+                // (chips compare with ==): normalize its casing to the loaded
+                // list, or fall back to "All" if it no longer exists. The callback
+                // first fires with an empty list before the data loads — skip it,
+                // or the pre-selection would be wiped before it can match.
+                if (manufacturers.isNotEmpty() && selectedManufacturer !in manufacturerFilters) {
+                    selectedManufacturer = manufacturerFilters.firstOrNull {
+                        it.equals(selectedManufacturer, ignoreCase = true)
+                    } ?: "All"
+                }
             },
             useMergedView = useMergedView
         )
