@@ -385,6 +385,12 @@ fun PhoneDetailContent(
 
     var variantColorsMap by remember(phone.phoneDocId) { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
 
+    // "ram|storage" -> colour -> one location per available unit (for the
+    // location-aware availability bar)
+    var variantColorLocationsMap by remember(phone.phoneDocId) {
+        mutableStateOf<Map<String, Map<String, List<String>>>>(emptyMap())
+    }
+
     var isSoldOut by remember(phone.phoneDocId) { mutableStateOf(false) }
 
     // Auto-close only while this phone is actually being viewed; a preloaded
@@ -459,6 +465,8 @@ fun PhoneDetailContent(
                             )
                             allAvailableColors = phone.colors
                             variantColorsMap = mapOf("${phone.ram}|${phone.storage}" to phone.colors)
+                            variantColorLocationsMap =
+                                mapOf("${phone.ram}|${phone.storage}" to phone.colorLocations)
                         }
                         isLoadingVariants = false
                         return@addSnapshotListener
@@ -488,6 +496,8 @@ fun PhoneDetailContent(
                     val variantMap = mutableMapOf<String, PhoneVariant>()
                     val allColors = mutableSetOf<String>()
                     val variantColorsTemp = mutableMapOf<String, MutableSet<String>>()
+                    val variantColorLocationsTemp =
+                        mutableMapOf<String, MutableMap<String, MutableList<String>>>()
 
                     for (doc in snapshot.documents) {
                         val ram = doc.getString("ram") ?: ""
@@ -495,6 +505,7 @@ fun PhoneDetailContent(
                         val retailPrice = doc.getDouble("retailPrice") ?: 0.0
                         val dealersPrice = doc.getDouble("dealersPrice") ?: 0.0
                         val color = doc.getString("color") ?: ""
+                        val location = doc.getString("location")?.trim() ?: ""
 
                         if (color.isNotEmpty()) {
                             allColors.add(color)
@@ -504,6 +515,10 @@ fun PhoneDetailContent(
 
                         if (color.isNotEmpty()) {
                             variantColorsTemp.getOrPut(key) { mutableSetOf() }.add(color)
+                            variantColorLocationsTemp
+                                .getOrPut(key) { mutableMapOf() }
+                                .getOrPut(color) { mutableListOf() }
+                                .add(location)
                         }
 
                         if (!variantMap.containsKey(key)) {
@@ -539,6 +554,7 @@ fun PhoneDetailContent(
                     variantColorsMap = variantColorsTemp.mapValues { (_, colors) ->
                         orderedColors.filter { ordered -> colors.any { it.equals(ordered, ignoreCase = true) } }
                     }
+                    variantColorLocationsMap = variantColorLocationsTemp
 
                     // Fall back when nothing is selected or the server
                     // confirms the selected color sold out; a partial cache
@@ -592,6 +608,18 @@ fun PhoneDetailContent(
                 contentScale = ContentScale.FillHeight
             )
         }
+
+        // Store location the app is set to, directly under the logo
+        Text(
+            text = LocationManager.displayName(),
+            fontSize = (layoutConfig.colorNameFontSize.value + 6).sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF666666),
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        )
 
         // Spacer between logo and model name - USES CONFIG
         Spacer(modifier = Modifier.height(layoutConfig.logoToModelSpacing))
@@ -1026,15 +1054,29 @@ fun PhoneDetailContent(
                             val colorsForVariant = variantColorsMap[variantKey] ?: emptyList()
                             val isAvailableInSelectedColor = colorsForVariant.contains(currentColor)
 
-                            val barColor = if (isAvailableInSelectedColor) {
+                            // Fill colour used when stocked at the current location
+                            val fillColor = run {
                                 val hexColor = phoneImages?.getHexColorForColor(currentColor) ?: ""
                                 if (hexColor.isNotEmpty()) {
                                     parseHexColorDetail(hexColor)
                                 } else {
                                     getColorFromNameDetail(currentColor)
                                 }
+                            }
+
+                            // Three-state availability relative to the selected
+                            // location; same rule as the list cards. No location
+                            // data yet (offline fallback from an old cache) ->
+                            // colour-only rule.
+                            val colorLocations = variantColorLocationsMap[variantKey] ?: emptyMap()
+                            val availability = if (colorLocations.isEmpty()) {
+                                if (isAvailableInSelectedColor) LocationAvailability.HERE
+                                else LocationAvailability.NONE
                             } else {
-                                Color.Transparent
+                                LocationManager.availability(
+                                    LocationManager.locationsForColor(colorLocations, currentColor),
+                                    LocationManager.selectedLocation
+                                )
                             }
 
                             Row(
@@ -1106,19 +1148,11 @@ fun PhoneDetailContent(
 
                                     // Color availability bar - USES CONFIG
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .width(layoutConfig.colorBarWidth)
-                                            .height(layoutConfig.colorBarHeight)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(barColor)
-                                            .then(
-                                                if (isAvailableInSelectedColor) {
-                                                    Modifier.border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(3.dp))
-                                                } else {
-                                                    Modifier
-                                                }
-                                            )
+                                    AvailabilityBar(
+                                        state = availability,
+                                        fillColor = fillColor,
+                                        width = layoutConfig.colorBarWidth,
+                                        height = layoutConfig.colorBarHeight
                                     )
                                 }
 

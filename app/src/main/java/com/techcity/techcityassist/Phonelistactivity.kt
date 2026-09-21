@@ -51,6 +51,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -76,6 +77,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -104,8 +107,10 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.techcity.techcityassist.ui.theme.TechCityAssistTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 import java.util.Locale
 import androidx.compose.ui.draw.drawWithContent
@@ -340,6 +345,71 @@ fun MainScreen(deviceType: String = "phone", initialBrand: String? = null) {
 
     // View mode: false = expanded (individual cards), true = merged (grouped cards)
     var useMergedView by remember { mutableStateOf(true) }
+
+    // Store location picker (opened from the kebab menu)
+    var showLocationDialog by remember { mutableStateOf(false) }
+
+    if (showLocationDialog) {
+        // Refresh the list on open; persisted/cached values show instantly
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                LocationManager.loadLocations(context)
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showLocationDialog = false },
+            containerColor = Color(0xFFFCF9F5),
+            title = {
+                Text("Select Location", color = Color(0xFF333333), fontWeight = FontWeight.Bold)
+            },
+            text = {
+                val locations = LocationManager.locations
+                val current = LocationManager.selectedLocation
+                if (locations.isEmpty()) {
+                    Text("No locations available", color = Color(0xFF555555))
+                } else {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        locations.forEach { name ->
+                            val isSelected = name.equals(current, ignoreCase = true)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val changed = !isSelected
+                                        LocationManager.select(context, name)
+                                        showLocationDialog = false
+                                        val message = if (changed) {
+                                            "Location changed to ${name.uppercase()}"
+                                        } else {
+                                            "Location is already ${name.uppercase()}"
+                                        }
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = null,
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = Color.Black,
+                                        unselectedColor = Color.Black
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(name, color = Color(0xFF333333))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLocationDialog = false }) {
+                    Text("Close", color = Color(0xFF333333))
+                }
+            }
+        )
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -595,6 +665,24 @@ fun MainScreen(deviceType: String = "phone", initialBrand: String? = null) {
                                 )
                             )
                         }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        // Store location the app is set to (all device types)
+                        Text(
+                            text = "Location",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF555555),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                        DropdownMenuItem(
+                            text = { Text(LocationManager.displayLabel(), color = Color.Black) },
+                            onClick = {
+                                showMenu = false
+                                showLocationDialog = true
+                            }
+                        )
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
