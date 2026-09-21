@@ -379,7 +379,7 @@ fun HomeScreen(
                                 val logoRes = brandLogoRes(brand)
                                 if (logoRes != null) {
                                     // Category-button width; height is the natural
-                                    // pill height (~130dp) reduced ~24%, so the pill
+                                    // pill height (~130dp) reduced ~31%, so the pill
                                     // is center-cropped at top and bottom
                                     BrandLogoButton(
                                         logoRes = logoRes,
@@ -388,7 +388,7 @@ fun HomeScreen(
                                         enabled = !isSyncing,
                                         modifier = Modifier
                                             .width(320.dp)
-                                            .height(100.dp),
+                                            .height(90.dp),
                                         keepAspect = false
                                     )
                                 } else {
