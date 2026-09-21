@@ -192,6 +192,11 @@ object SyncDataManager {
             put("deviceType", phone.deviceType)
             put("gpu", phone.gpu)
             put("cpu", phone.cpu)
+            put("colorLocations", JSONObject().apply {
+                phone.colorLocations.forEach { (colorName, locations) ->
+                    put(colorName, JSONArray(locations))
+                }
+            })
         }
     }
 
@@ -220,8 +225,19 @@ object SyncDataManager {
             deviceType = json.optString("deviceType", ""),
             gpu = json.optString("gpu", ""),
             cpu = json.optString("cpu", ""),
-            variants = emptyList()  // Variants are fetched on-demand in detail view
+            variants = emptyList(),  // Variants are fetched on-demand in detail view
+            colorLocations = jsonToColorLocations(json.optJSONObject("colorLocations"))
         )
+    }
+
+    /** Absent on caches written before locations were tracked -> empty map */
+    private fun jsonToColorLocations(json: JSONObject?): Map<String, List<String>> {
+        if (json == null) return emptyMap()
+        val result = mutableMapOf<String, List<String>>()
+        json.keys().forEach { colorName ->
+            result[colorName] = jsonArrayToStringList(json.optJSONArray(colorName))
+        }
+        return result
     }
 
     private fun phoneImagesToJson(phoneImages: PhoneImages): JSONObject {

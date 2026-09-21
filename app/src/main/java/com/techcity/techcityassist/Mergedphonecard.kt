@@ -46,7 +46,8 @@ data class MergedVariant(
     val retailPrice: Double,
     val colors: List<String>,  // Colors available for this specific variant
     val inventoryDocIds: List<String> = emptyList(),  // Reference to original inventory docs
-    val phoneDocId: String = ""  // Reference to phone specs doc
+    val phoneDocId: String = "",  // Reference to phone specs doc
+    val colorLocations: Map<String, List<String>> = emptyMap()  // Colour -> location per unit
 )
 
 /**
@@ -123,7 +124,8 @@ fun groupPhonesForMergedView(
                 retailPrice = phone.retailPrice,
                 colors = phone.colors,
                 inventoryDocIds = phone.inventoryDocIds,
-                phoneDocId = phone.phoneDocId
+                phoneDocId = phone.phoneDocId,
+                colorLocations = phone.colorLocations
             )
         }.sortedBy { it.retailPrice }
 
@@ -511,15 +513,24 @@ fun MergedPhoneCard(
                             it.ram == variant.ram && it.storage == variant.storage
                         }
 
-                        // Get color for the bar
-                        val barColor = if (isAvailableInSelectedColor) {
-                            if (currentColorHex.isNotEmpty()) {
-                                parseHexColorMerged(currentColorHex)
-                            } else {
-                                getColorFromName(currentColorName)
-                            }
+                        // Fill colour used when the variant is stocked at the current location
+                        val fillColor = if (currentColorHex.isNotEmpty()) {
+                            parseHexColorMerged(currentColorHex)
                         } else {
-                            Color.Transparent
+                            getColorFromName(currentColorName)
+                        }
+
+                        // Three-state availability relative to the selected location.
+                        // A cache written before locations were tracked has no
+                        // colorLocations: fall back to the colour-only rule.
+                        val availability = if (variant.colorLocations.isEmpty()) {
+                            if (isAvailableInSelectedColor) LocationAvailability.HERE
+                            else LocationAvailability.NONE
+                        } else {
+                            LocationManager.availability(
+                                LocationManager.locationsForColor(variant.colorLocations, currentColorName),
+                                LocationManager.selectedLocation
+                            )
                         }
 
                         Row(
@@ -575,19 +586,11 @@ fun MergedPhoneCard(
 
                             // Color availability bar
                             Spacer(modifier = Modifier.width(10.dp))
-                            Box(
-                                modifier = Modifier
-                                    .width(COLOR_BAR_WIDTH)
-                                    .height(COLOR_BAR_HEIGHT)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(barColor)
-                                    .then(
-                                        if (isAvailableInSelectedColor) {
-                                            Modifier.border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(3.dp))
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
+                            AvailabilityBar(
+                                state = availability,
+                                fillColor = fillColor,
+                                width = COLOR_BAR_WIDTH,
+                                height = COLOR_BAR_HEIGHT
                             )
 
                             Spacer(modifier = Modifier.weight(1f))
@@ -758,6 +761,7 @@ fun mergedVariantToPhone(group: MergedPhoneGroup, variant: MergedVariant): Phone
         cpu = group.cpu,
         gpu = group.gpu,
         inventoryDocIds = variant.inventoryDocIds,
-        variants = emptyList()
+        variants = emptyList(),
+        colorLocations = variant.colorLocations
     )
 }

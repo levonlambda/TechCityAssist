@@ -49,7 +49,8 @@ private data class InventoryUnit(
     val color: String,
     val retailPrice: Double,
     val dealersPrice: Double,
-    val docId: String
+    val docId: String,
+    val location: String
 )
 
 /**
@@ -73,7 +74,8 @@ fun groupInventoryDocs(
                 color = doc.getString("color") ?: "",
                 retailPrice = doc.getDouble("retailPrice") ?: 0.0,
                 dealersPrice = doc.getDouble("dealersPrice") ?: 0.0,
-                docId = doc.id
+                docId = doc.id,
+                location = doc.getString("location")?.trim() ?: ""
             )
         }
         .groupBy { "${it.manufacturer}|${it.model}|${it.ram}|${it.storage}" }
@@ -81,6 +83,11 @@ fun groupInventoryDocs(
             val first = items.first()
             val colors = items.map { it.color }.distinct().filter { it.isNotEmpty() }
             val specs = specsMap["${first.manufacturer}|${first.model}"] ?: DeviceSpecs()
+            // One location entry per unit so the location rule can tell
+            // "stocked here" from "stocked elsewhere only" per colour.
+            val colorLocations = items
+                .filter { it.color.isNotEmpty() }
+                .groupBy({ it.color }, { it.location })
 
             Phone(
                 manufacturer = first.manufacturer,
@@ -106,7 +113,8 @@ fun groupInventoryDocs(
                 variants = emptyList(),
                 deviceType = specs.deviceType,
                 gpu = specs.gpu,
-                cpu = specs.cpu
+                cpu = specs.cpu,
+                colorLocations = colorLocations
             )
         }
         .sortedWith(compareBy({ it.manufacturer }, { it.model }, { it.retailPrice }))

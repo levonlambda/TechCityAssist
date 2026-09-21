@@ -31,5 +31,11 @@ data class Phone(
     val variants: List<PhoneVariant> = emptyList(),
     val deviceType: String = "",  // Phone, Tablet, Laptop
     val gpu: String = "",
-    val cpu: String = ""
+    val cpu: String = "",
+    /**
+     * Colour -> one location string per available unit in that colour
+     * (blank when the inventory document has no location). Empty for
+     * data loaded from a cache written before locations were tracked.
+     */
+    val colorLocations: Map<String, List<String>> = emptyMap()
 )

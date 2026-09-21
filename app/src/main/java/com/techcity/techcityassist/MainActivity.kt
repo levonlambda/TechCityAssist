@@ -159,6 +159,14 @@ fun HomeScreen(
         selectedCategory = null
     }
 
+    // Refresh the store location list (and apply the default) independently
+    // of the data load so a slow/offline read never delays the splash.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            LocationManager.loadLocations(context)
+        }
+    }
+
     // On startup: Check for local data from today
     LaunchedEffect(Unit) {
         if (SyncDataManager.hasTodaySync(context)) {
@@ -241,7 +249,16 @@ fun HomeScreen(
                     .size(280.dp)
             )
 
-            Spacer(modifier = Modifier.height(80.dp))
+            // Store location the app is set to. Sits above the category /
+            // brand region so it stays put when the brand list is shown.
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = LocationManager.displayName(),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF666666)
+            )
+            Spacer(modifier = Modifier.height(40.dp))
 
             val category = selectedCategory
 
@@ -906,6 +923,9 @@ suspend fun syncAllData(
     // Step 6: Save to local storage for persistence
     onProgress("Saving to local storage...")
     SyncDataManager.saveSyncedData(context, grouped, imagesMap)
+
+    // Step 7: Refresh the store location list (applies the default if needed)
+    LocationManager.loadLocations(context)
 
     onProgress("Sync complete!")
 }
