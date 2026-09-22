@@ -656,7 +656,8 @@ fun MergedPhoneCard(
                                         model = imageRequest,
                                         contentDescription = "${displayName} in ${colorData.colorName}",
                                         imageLoader = imageLoader,
-                                        modifier = Modifier.fillMaxHeight(),
+                                        // MEDIUM tier: 10% shorter (and therefore narrower) so the edges stay in the column
+                                        modifier = if (layoutConfig.imageHeightFraction < 1f) Modifier.fillMaxHeight(layoutConfig.imageHeightFraction) else Modifier.fillMaxHeight(),
                                         contentScale = ContentScale.FillHeight
                                     )
                                 } else {

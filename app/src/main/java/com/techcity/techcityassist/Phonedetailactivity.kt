@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.draw.clip
@@ -152,7 +154,12 @@ data class DetailLayoutConfig(
     val colorBarWidth: Dp,
     val colorBarHeight: Dp,
     val variantRowSpacing: Dp,
-    val variantStartPadding: Dp
+    val variantStartPadding: Dp,
+
+    // MEDIUM tier only: let the RAM/Storage/Price list scroll when more
+    // rows exist than fit. false on the standard/large tiers so their
+    // modifier chains are unchanged.
+    val variantListScrollable: Boolean = false
 )
 
 /**
@@ -264,28 +271,127 @@ private fun createLargeLayoutConfig(): DetailLayoutConfig {
 }
 
 /**
+ * Small layout - tablets with a physical diagonal of 9" or less.
+ *
+ * Identical to the standard layout except the image is 10% smaller
+ * (418dp -> 376dp, keeps its edges on screen), the specs column is
+ * shortened to match so four RAM/Storage/Price rows fit, and the variant
+ * list scrolls if a device has more rows than fit.
+ */
+private fun createSmallLayoutConfig(): DetailLayoutConfig {
+    return createStandardLayoutConfig().copy(
+        imageHeight = 376.dp,
+        specsColumnHeight = 430.dp,
+        variantListScrollable = true
+    )
+}
+
+/**
+ * Medium layout - wide (> 650dp) but short (< LARGE_MIN_HEIGHT_DP) tablets,
+ * e.g. the 11" 1200 x 1920 px tablet (~800 x ~1250 dp).
+ *
+ * Values sit between standard and large so the screen keeps the large
+ * tier's hierarchy at a smaller scale, with enough vertical room for the
+ * header, the image/specs block and four RAM/Storage/Price rows.
+ * Every value is >= the standard tier (text stays legible).
+ * The image keeps the large tier's rendering (FillHeight + 1.15 scale)
+ * but is ~15% smaller (522dp -> 446dp), which also keeps its edges on screen.
+ */
+private fun createMediumLayoutConfig(): DetailLayoutConfig {
+    return DetailLayoutConfig(
+        // Logo
+        logoHeight = 48.dp,
+
+        // Model name
+        modelNameMaxFontSize = 46.sp,
+        modelNameMinFontSize = 26.sp,
+        appleLogoSize = 60.dp,
+
+        // Spacing
+        logoToModelSpacing = 24.dp,
+        modelToContentSpacing = 24.dp,
+        horizontalPadding = 28.dp,
+
+        // Image - large tier's 522dp reduced ~15% (470 * 0.95), same 1.15 enlargement
+        imageHeight = 446.dp,
+        imageScale = 1.15f,
+
+        // Specs column - spans the image plus the colour name/dots under it
+        specsColumnHeight = 515.dp,
+
+        // Spec row
+        specIconSize = 46.dp,
+        specIconSizeLarge = 54.dp,
+        specLabelFontSize = 15.sp,
+        specValueFontSize = 16.sp,
+        specRowSpacing = 12.dp,
+
+        // Color dots
+        colorDotSizeSelected = 30.dp,
+        colorDotSizeUnselected = 24.dp,
+        colorNameFontSize = 15.sp,
+        colorDotsSpacing = 12.dp,
+
+        // RAM/Storage/Price
+        variantChipPaddingH = 14.dp,
+        variantChipPaddingV = 8.dp,
+        variantChipFontSize = 16.sp,
+        ramChipMinWidth = 125.dp,
+        storageChipMinWidth = 155.dp,
+        priceFontSize = 24.sp,
+        priceEndPadding = 80.dp,
+        colorBarWidth = 7.dp,
+        colorBarHeight = 34.dp,
+        variantRowSpacing = 8.dp,
+        variantStartPadding = 36.dp,
+
+        variantListScrollable = true
+    )
+}
+
+/**
  * Get the appropriate layout config based on screen size
  *
  * PRESERVES standard layout for screens <= 650dp width
  * (Your working 601dp tablet will use standard layout)
  *
- * USES large layout for screens > 650dp width
- * (Your 824dp tablet will use large layout)
+ * USES large layout for screens > 650dp width AND >= LARGE_MIN_HEIGHT_DP tall
+ * (Your 824 x 1318dp tablet will use large layout)
+ *
+ * USES medium layout for screens > 650dp width but shorter than LARGE_MIN_HEIGHT_DP
+ * (11" 1200 x 1920 px tablet)
+ *
+ * See Screensizeclass.kt for the shared rule.
  */
 @Composable
 fun rememberDetailLayoutConfig(): DetailLayoutConfig {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
+    val screenHeightDp = configuration.screenHeightDp
+    val tier = rememberTabletTier()
 
-    return remember(screenWidthDp) {
-        if (screenWidthDp > 650) {
-            // Larger screen (824dp tablet) - use scaled up layout
-            Log.d("PhoneDetail", "Using LARGE layout for screen width: ${screenWidthDp}dp")
-            createLargeLayoutConfig()
-        } else {
-            // Standard screen (601dp tablet) - preserve exact layout
-            Log.d("PhoneDetail", "Using STANDARD layout for screen width: ${screenWidthDp}dp")
-            createStandardLayoutConfig()
+    return remember(tier) {
+        when (tier) {
+            TabletTier.LARGE -> {
+                // Larger screen (824dp tablet) - use scaled up layout
+                Log.d("PhoneDetail", "Using LARGE layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createLargeLayoutConfig()
+            }
+            TabletTier.MEDIUM -> {
+                // Wide but short screen (11" tablet) - use medium layout
+                Log.d("PhoneDetail", "Using MEDIUM layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createMediumLayoutConfig()
+            }
+            TabletTier.STANDARD -> {
+                // Standard screen (601dp tablet) - preserve exact layout
+                Log.d("PhoneDetail", "Using STANDARD layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createStandardLayoutConfig()
+            }
+            TabletTier.SMALL -> {
+                // 9" or smaller tablet - standard layout with a smaller image
+                Log.d("PhoneDetail", "Using SMALL layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createSmallLayoutConfig()
+            }
         }
     }
 }
@@ -1046,7 +1152,15 @@ fun PhoneDetailContent(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // MEDIUM tier only: four rows fit by design; five or more scroll.
+                    // Standard/large tiers keep the plain (non-scrolling) column.
+                    val variantListModifier = if (layoutConfig.variantListScrollable) {
+                        Modifier.verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    }
                     Column(
+                        modifier = variantListModifier,
                         verticalArrangement = Arrangement.spacedBy(layoutConfig.variantRowSpacing)
                     ) {
                         variants.forEach { variant ->

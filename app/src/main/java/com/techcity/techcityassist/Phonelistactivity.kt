@@ -221,7 +221,13 @@ data class CardLayoutConfig(
     val chipPaddingV: Dp,
     val storagePriceSpacing: Dp,
     val ramStorageWeight: Float,
-    val priceWeight: Float
+    val priceWeight: Float,
+
+    // MEDIUM tier only (wide but short tablets, see Screensizeclass.kt):
+    // and SMALL tier (9" or less): the card image fills this fraction of its
+    // slot height (~15% smaller) so its edges stay inside the 140dp column. Other tiers
+    // keep 1f, i.e. the original fillMaxHeight().
+    val imageHeightFraction: Float = 1f
 )
 
 /**
@@ -1609,8 +1615,11 @@ fun PhoneListScreen(
     // This eliminates 2 LocalConfiguration reads + 15 calculations PER CARD during scroll
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.dp
+    // Tier is derived from the screen dimensions (see Screensizeclass.kt);
+    // computed once per configuration here, never per card.
+    val tabletTier = rememberTabletTier()
 
-    val cardLayoutConfig = remember(screenWidthDp) {
+    val cardLayoutConfig = remember(screenWidthDp, tabletTier) {
         // First set of calculations (was at top of PhoneCard)
         val useVerticalSpecLayout = screenWidthDp < 800.dp
         val cardHeight = if (useVerticalSpecLayout) 330.dp else 300.dp
@@ -1619,6 +1628,15 @@ fun PhoneListScreen(
         // Second set of calculations (was in RAM/Storage section of PhoneCard)
         val useSmallLayout = screenWidthDp < 800.dp
         val startPadding = if (useSmallLayout) 24.dp else 48.dp
+
+        // MEDIUM tier: image ~15% smaller (0.9 * 0.95); SMALL tier (9" or
+        // less): 15% smaller. Keeps the edges inside the column. Other tiers
+        // keep the original full-height image.
+        val imageHeightFraction = when (tabletTier) {
+            TabletTier.MEDIUM -> 0.855f
+            TabletTier.SMALL -> 0.85f
+            else -> 1f
+        }
 
         // Estimate the available width for RAM/Storage/Price section
         val estimatedContentWidth = screenWidthDp - 32.dp - 40.dp - 148.dp - startPadding
@@ -1648,7 +1666,8 @@ fun PhoneListScreen(
             chipPaddingV = chipPaddingV,
             storagePriceSpacing = storagePriceSpacing,
             ramStorageWeight = ramStorageWeight,
-            priceWeight = priceWeight
+            priceWeight = priceWeight,
+            imageHeightFraction = imageHeightFraction
         )
     }
 
@@ -2404,7 +2423,8 @@ fun PhoneCard(
                                 colorData = colorData,
                                 phone = phone,
                                 context = context,
-                                imageLoader = imageLoader
+                                imageLoader = imageLoader,
+                                imageHeightFraction = layoutConfig.imageHeightFraction
                             )
                         }
                     } else {
@@ -2456,7 +2476,8 @@ private fun PhoneImageItem(
     colorData: ColorImageData,
     phone: Phone,
     context: android.content.Context,
-    imageLoader: ImageLoader
+    imageLoader: ImageLoader,
+    imageHeightFraction: Float = 1f
 ) {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -2490,7 +2511,8 @@ private fun PhoneImageItem(
                 model = imageRequest,
                 imageLoader = imageLoader,
                 contentDescription = "${phone.manufacturer} ${phone.model} in ${colorData.colorName}",
-                modifier = Modifier.fillMaxHeight(),
+                // MEDIUM tier: 10% shorter (and therefore narrower) so the edges stay in the column
+                modifier = if (imageHeightFraction < 1f) Modifier.fillMaxHeight(imageHeightFraction) else Modifier.fillMaxHeight(),
                 contentScale = ContentScale.FillHeight
             )
         } else {
