@@ -227,6 +227,12 @@ fun HomeScreen(
         }
     }
 
+    // Screen size tier (see Screensizeclass.kt). SMALL (9" or less) gets a
+    // 25% smaller logo and shorter brand pills so five brand rows fit
+    // without scrolling; MEDIUM (11") gets shorter two-column pills only.
+    val homeTier = rememberTabletTier()
+    val isSmallTablet = homeTier == TabletTier.SMALL
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -246,7 +252,7 @@ fun HomeScreen(
                 painter = painterResource(id = R.drawable.tc_logo_round),
                 contentDescription = "Tech City Logo",
                 modifier = Modifier
-                    .size(280.dp)
+                    .size(if (isSmallTablet) 210.dp else 280.dp)  // 25% smaller on 9" or less
             )
 
             // Store location the app is set to. Sits above the category /
@@ -340,6 +346,16 @@ fun HomeScreen(
                     }
                     val useTwoColumns = brands.size > 5
 
+                    // MEDIUM tier (11" tablet, see Screensizeclass.kt): the
+                    // natural pill height (~103dp at the capped row width)
+                    // makes 5 rows overflow the region, so fix the pill at
+                    // 80dp (centre-cropped like the single-column pills).
+                    // SMALL tier (9" or less): 64dp pills and 12dp row gaps.
+                    // Other tiers keep the natural aspect-ratio pill.
+                    val compactBrandGrid = homeTier == TabletTier.MEDIUM || isSmallTablet
+                    val compactPillHeight = if (isSmallTablet) 64.dp else 80.dp
+                    val brandRowSpacing = if (isSmallTablet) 12.dp else 16.dp
+
                     Column(
                         modifier = Modifier
                             .weight(1f, fill = false)
@@ -349,7 +365,7 @@ fun HomeScreen(
                         if (useTwoColumns) {
                             brands.chunked(2).forEachIndexed { rowIndex, rowBrands ->
                                 if (rowIndex > 0) {
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.height(brandRowSpacing))
                                 }
                                 Row(
                                     // widthIn must precede fillMaxWidth: once
@@ -365,13 +381,26 @@ fun HomeScreen(
                                     rowBrands.forEach { brand ->
                                         val logoRes = brandLogoRes(brand)
                                         if (logoRes != null) {
-                                            BrandLogoButton(
-                                                logoRes = logoRes,
-                                                brand = brand,
-                                                onClick = { launchBrand(brand) },
-                                                enabled = !isSyncing,
-                                                modifier = Modifier.weight(1f)
-                                            )
+                                            if (compactBrandGrid) {
+                                                BrandLogoButton(
+                                                    logoRes = logoRes,
+                                                    brand = brand,
+                                                    onClick = { launchBrand(brand) },
+                                                    enabled = !isSyncing,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(compactPillHeight),
+                                                    keepAspect = false
+                                                )
+                                            } else {
+                                                BrandLogoButton(
+                                                    logoRes = logoRes,
+                                                    brand = brand,
+                                                    onClick = { launchBrand(brand) },
+                                                    enabled = !isSyncing,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
                                         } else {
                                             HomeButton(
                                                 text = brand,
@@ -391,21 +420,28 @@ fun HomeScreen(
                         } else {
                             brands.forEachIndexed { index, brand ->
                                 if (index > 0) {
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.height(brandRowSpacing))
                                 }
                                 val logoRes = brandLogoRes(brand)
                                 if (logoRes != null) {
                                     // Category-button width; height is the natural
                                     // pill height (~130dp) reduced ~31%, so the pill
-                                    // is center-cropped at top and bottom
+                                    // is center-cropped at top and bottom.
+                                    // SMALL tier: 280 x 68dp so five rows fit.
                                     BrandLogoButton(
                                         logoRes = logoRes,
                                         brand = brand,
                                         onClick = { launchBrand(brand) },
                                         enabled = !isSyncing,
-                                        modifier = Modifier
-                                            .width(320.dp)
-                                            .height(90.dp),
+                                        modifier = if (isSmallTablet) {
+                                            Modifier
+                                                .width(280.dp)
+                                                .height(68.dp)
+                                        } else {
+                                            Modifier
+                                                .width(320.dp)
+                                                .height(90.dp)
+                                        },
                                         keepAspect = false
                                     )
                                 } else {
@@ -676,6 +712,23 @@ fun DebugScreenInfoOverlay() {
                     text = "${String.format("%.2f", densityDpi)}x",
                     color = Color.White,
                     fontSize = 11.sp
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Physical diagonal + layout tier (see Screensizeclass.kt)
+                val diagonalInches = remember { screenDiagonalInches() }
+                val layoutTier = rememberTabletTier()
+                Text(
+                    text = "Diagonal / Tier:",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = "${String.format("%.1f", diagonalInches)}\" / $layoutTier",
+                    color = Color.Cyan,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))

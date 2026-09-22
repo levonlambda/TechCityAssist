@@ -299,18 +299,100 @@ private fun createLargeComparisonLayoutConfig(): ComparisonLayoutConfig {
 /**
  * Get the appropriate layout config based on screen size
  */
+/**
+ * Small layout - tablets with a physical diagonal of 9" or less.
+ * Identical to the standard layout except the image is ~26% smaller
+ * (500dp -> 400dp -> 368dp) so its edges stay on screen.
+ */
+private fun createSmallComparisonLayoutConfig(): ComparisonLayoutConfig {
+    return createStandardComparisonLayoutConfig().copy(
+        imageHeight = 368.dp
+    )
+}
+
+/**
+ * Medium layout - wide (> 650dp) but short (< LARGE_MIN_HEIGHT_DP) tablets,
+ * e.g. the 11" 1200 x 1920 px tablet (~800 x ~1250 dp).
+ *
+ * Values sit between standard and large; the image keeps the large tier's
+ * rendering (FillHeight + 1.15 scale) but is ~31% smaller (625dp -> 430dp),
+ * which also keeps its edges on screen.
+ */
+private fun createMediumComparisonLayoutConfig(): ComparisonLayoutConfig {
+    return ComparisonLayoutConfig(
+        // Logo
+        logoHeight = 44.dp,
+
+        // Model name
+        modelNameFontSize = 28.sp,
+        appleLogoSize = 36.dp,
+
+        // Spacing
+        topPadding = 50.dp,
+        logoToModelSpacing = 20.dp,
+        modelToContentSpacing = 20.dp,
+        horizontalPadding = 20.dp,
+
+        // Phone image - 478dp reduced a further 10% (~31% under the large tier's 625dp), same 1.15 enlargement
+        imageHeight = 430.dp,
+        imageScale = 1.15f,
+        imageYOffset = (-40).dp,
+
+        // Color dots
+        colorDotSizeSelected = 26.dp,
+        colorDotSizeUnselected = 20.dp,
+        colorNameFontSize = 15.sp,
+
+        // Spec row
+        specIconSize = 46.dp,
+        specLabelFontSize = 15.sp,
+        specValueFontSize = 16.sp,
+        specRowPadding = 7.dp,
+        arrowSize = 36.dp,
+
+        // Price
+        priceFontSize = 30.sp,
+        priceBottomSpacing = 64.dp,
+
+        // Column padding
+        leftColumnStartPadding = 52.dp,
+        leftColumnEndPadding = 0.dp,
+        rightColumnStartPadding = 0.dp,
+        rightColumnEndPadding = 52.dp
+    )
+}
+
+/**
+ * Tier rule shared with PhoneDetailActivity - see Screensizeclass.kt.
+ * STANDARD: width <= 650dp (601dp tablet, unchanged)
+ * LARGE:    width > 650dp and height >= LARGE_MIN_HEIGHT_DP (824 x 1318dp tablet, unchanged)
+ * MEDIUM:   width > 650dp but shorter (11" 1200 x 1920 px tablet)
+ */
 @Composable
 fun rememberComparisonLayoutConfig(): ComparisonLayoutConfig {
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
+    val screenHeightDp = configuration.screenHeightDp
+    val tier = rememberTabletTier()
 
-    return remember(screenWidthDp) {
-        if (screenWidthDp > 650) {
-            Log.d("PhoneComparison", "Using LARGE layout for screen width: ${screenWidthDp}dp")
-            createLargeComparisonLayoutConfig()
-        } else {
-            Log.d("PhoneComparison", "Using STANDARD layout for screen width: ${screenWidthDp}dp")
-            createStandardComparisonLayoutConfig()
+    return remember(tier) {
+        when (tier) {
+            TabletTier.LARGE -> {
+                Log.d("PhoneComparison", "Using LARGE layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createLargeComparisonLayoutConfig()
+            }
+            TabletTier.MEDIUM -> {
+                Log.d("PhoneComparison", "Using MEDIUM layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createMediumComparisonLayoutConfig()
+            }
+            TabletTier.STANDARD -> {
+                Log.d("PhoneComparison", "Using STANDARD layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createStandardComparisonLayoutConfig()
+            }
+            TabletTier.SMALL -> {
+                Log.d("PhoneComparison", "Using SMALL layout for screen: ${screenWidthDp} x ${screenHeightDp}dp")
+                createSmallComparisonLayoutConfig()
+            }
         }
     }
 }
