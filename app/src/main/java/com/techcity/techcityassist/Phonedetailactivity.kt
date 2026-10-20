@@ -19,6 +19,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -461,7 +463,8 @@ fun PhoneDetailScreen(
             initialPhoneImages = initialPhoneImages,
             initialSelectedColor = colorForThisPage,
             isCurrentPage = phonePagerState.currentPage == page,
-            onPhoneUnavailable = onBackPress
+            onPhoneUnavailable = onBackPress,
+            onBackPress = onBackPress
         )
     }
 }
@@ -473,7 +476,8 @@ fun PhoneDetailContent(
     initialPhoneImages: PhoneImages?,
     initialSelectedColor: String = "",
     isCurrentPage: Boolean = true,
-    onPhoneUnavailable: () -> Unit = {}
+    onPhoneUnavailable: () -> Unit = {},
+    onBackPress: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val formatter = remember { NumberFormat.getNumberInstance(Locale.US) }
@@ -700,17 +704,29 @@ fun PhoneDetailContent(
             .background(Color.White)
             .padding(horizontal = layoutConfig.horizontalPadding)
     ) {
-        // TechCity logo at top center - USES CONFIG
-        Row(
+        // TechCity logo at top center with a back button at the left edge
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 50.dp),
-            horizontalArrangement = Arrangement.Center
+                .padding(top = 50.dp)
         ) {
+            IconButton(
+                onClick = onBackPress,
+                modifier = Modifier.align(Alignment.CenterStart)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color(0xFF333333),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
             Image(
                 painter = painterResource(id = R.drawable.tc_logo_flat_colored),
                 contentDescription = "TechCity Logo",
-                modifier = Modifier.height(layoutConfig.logoHeight),
+                modifier = Modifier
+                    .height(layoutConfig.logoHeight)
+                    .align(Alignment.Center),
                 contentScale = ContentScale.FillHeight
             )
         }
