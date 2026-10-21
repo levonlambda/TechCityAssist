@@ -13,7 +13,13 @@ import kotlin.math.sqrt
 // Reference devices:
 //   SMALL     tablets with a physical diagonal of 9" or less
 //             (e.g. 8.7" 800 x 1340 px -> ~600 x 1007 dp) - image sizes
-//             reduced, home-screen logo/brand pills compacted
+//             reduced, home-screen logo/brand pills compacted.
+//             Also any tablet of standard width (<= 650dp) that reports
+//             less than SMALL_MAX_HEIGHT_DP of height, e.g. the 11"
+//             itel VistaTab 30 (1200 x 1920 px at 2.0x -> 600 x ~890 dp):
+//             it has fewer dp than the 8.7" device, so the standard
+//             preset overflows (home brand grid clipped) and the
+//             compact layout is the one that fits.
 //   STANDARD  601 x 1007 dp class, larger than 9" (width <= 650dp) - preserved exactly
 //   LARGE     824 x 1318 dp tablet  (width > 650dp, tall)         - preserved exactly
 //   MEDIUM    11" 1200 x 1920 px tablet (~800 x ~1250 dp):
@@ -32,6 +38,14 @@ const val SMALL_MAX_DIAGONAL_INCHES = 9.0f
 
 /** Existing width threshold that separates the standard tier from the rest. */
 const val LARGE_MIN_WIDTH_DP = 650
+
+/**
+ * Standard-width tablets (<= LARGE_MIN_WIDTH_DP) shorter than this are SMALL
+ * regardless of physical size. The 601 x 1007 dp reference tablet sits above
+ * it, so it keeps whichever tier it already had; a 1200 x 1920 px tablet at
+ * 2.0x density reports ~600 x 890 dp and lands below it.
+ */
+const val SMALL_MAX_HEIGHT_DP = 1000
 
 /**
  * Minimum reported screen height (dp) for the LARGE tier.
@@ -57,6 +71,7 @@ fun screenDiagonalInches(metrics: DisplayMetrics = Resources.getSystem().display
 
 fun tabletTier(widthDp: Int, heightDp: Int, diagonalInches: Float): TabletTier = when {
     diagonalInches > 0f && diagonalInches <= SMALL_MAX_DIAGONAL_INCHES -> TabletTier.SMALL
+    widthDp <= LARGE_MIN_WIDTH_DP && heightDp < SMALL_MAX_HEIGHT_DP -> TabletTier.SMALL
     widthDp <= LARGE_MIN_WIDTH_DP -> TabletTier.STANDARD
     heightDp >= LARGE_MIN_HEIGHT_DP -> TabletTier.LARGE
     else -> TabletTier.MEDIUM
