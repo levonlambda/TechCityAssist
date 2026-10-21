@@ -28,13 +28,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -458,12 +460,34 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                TextButton(onClick = { selectedCategory = null }) {
+                // Back to the category buttons. Styled like HomeButton with a
+                // large arrow so it reads clearly from a distance.
+                Button(
+                    onClick = { selectedCategory = null },
+                    modifier = Modifier
+                        .width(220.dp)
+                        .height(56.dp)
+                        .border(1.dp, Color(0xFFDDDDDD), RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF333333)
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 2.dp,
+                        pressedElevation = 4.dp
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "← BACK",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF666666)
+                        text = "BACK",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
@@ -575,21 +599,10 @@ fun HomeScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Sign out: clears cached data and returns to the login screen
-            TextButton(
-                onClick = { Authmanager.forceSignOut(context, accessRemoved = false) },
-                enabled = !isSyncing
-            ) {
-                Text(
-                    text = "Sign out",
-                    fontSize = 13.sp,
-                    color = Color(0xFF666666)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
+            // 72dp = the 8dp gap + 40dp "Sign out" text button that used to
+            // sit here + the original 24dp bottom gap. Sign out moved to the
+            // phone list kebab menu; the space is kept so SYNC stays put.
+            Spacer(modifier = Modifier.height(72.dp))
             } // end category-only sync section
             } // end weighted content region
         }

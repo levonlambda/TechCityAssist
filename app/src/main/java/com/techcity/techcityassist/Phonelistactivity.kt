@@ -57,6 +57,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -187,7 +188,11 @@ class PhoneListActivity : ComponentActivity() {
 
         setContent {
             TechCityAssistTheme {
-                MainScreen(deviceType = deviceType, initialBrand = initialBrand)
+                MainScreen(
+                    deviceType = deviceType,
+                    initialBrand = initialBrand,
+                    onBackPress = { finish() }
+                )
             }
         }
     }
@@ -331,7 +336,11 @@ fun generatePriceListText(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(deviceType: String = "phone", initialBrand: String? = null) {
+fun MainScreen(
+    deviceType: String = "phone",
+    initialBrand: String? = null,
+    onBackPress: () -> Unit = {}
+) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
 
@@ -421,6 +430,17 @@ fun MainScreen(deviceType: String = "phone", initialBrand: String? = null) {
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    // Back to the home screen; sits before the "All" chip
+                    IconButton(onClick = onBackPress) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color(0xFF333333),
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                },
                 title = {
                     // Horizontal scrollable row of manufacturer filter buttons
                     Row(
@@ -739,6 +759,19 @@ fun MainScreen(deviceType: String = "phone", initialBrand: String? = null) {
                             },
                             onClick = {
                                 useMergedView = !useMergedView
+                            }
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        // Sign out: clears cached data and returns to the login
+                        // screen. Lives here, inside the menu, so it cannot be
+                        // tapped by accident next to SYNC on the home screen.
+                        DropdownMenuItem(
+                            text = { Text("Sign out", color = Color(0xFF555555)) },
+                            onClick = {
+                                showMenu = false
+                                Authmanager.forceSignOut(context, accessRemoved = false)
                             }
                         )
                     }
